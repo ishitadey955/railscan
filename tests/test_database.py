@@ -494,9 +494,14 @@ def test_real_station_master_from_database_equals_csv(tmp_path):
 @pytest.mark.skipif(not (REAL_DATASET.is_file() and (REAL_MODELS / "delay_regressor.pkl").is_file()),
                     reason="real dataset or saved delay models not present")
 def test_real_data_model_inputs_match_training_path(tmp_path):
-    """Saved models must give the SAME predictions from database rows as from the CSV path used in training."""
-    path = tmp_path / "real.db"
-    rep = import_dataset(REAL_DATASET, path)
+    """Saved models must give the SAME predictions from database rows as from the CSV path used in training.
+
+    Uses the real rows of a few trains, copied verbatim (the full dataset is ~930k rows)."""
+    path, sample = tmp_path / "real.db", tmp_path / "RailScan_Final_Dataset.csv"
+    parts = [c[c.train_no.str.lstrip("0").isin(["12229", "12004", "14164"])]
+             for c in pd.read_csv(REAL_DATASET, dtype=str, keep_default_na=False, chunksize=200_000)]
+    pd.concat(parts).to_csv(sample, index=False)
+    rep = import_dataset(sample, path)
     assert rep.status == "success" and rep.rows_rejected == 0 and rep.rows_imported == rep.rows_read
     from src.database import model_inputs as mi
     try:
@@ -504,7 +509,7 @@ def test_real_data_model_inputs_match_training_path(tmp_path):
     except Exception as exc:                                    # e.g. incompatible scikit-learn version
         pytest.skip(f"saved models cannot be loaded here: {exc}")
     dc = mi.delay_common()
-    csv = pd.read_csv(REAL_DATASET)                             # exactly how training read it
+    csv = pd.read_csv(sample)                                   # exactly how training read it
     with connect(path) as c:
         rows = [dict(r) for r in c.execute(f"SELECT {', '.join(repo.STATE_COLUMNS)} FROM train_runs")]
     Xd = mi.make_model_features(rows, REAL_MODELS)
@@ -514,7 +519,10 @@ def test_real_data_model_inputs_match_training_path(tmp_path):
     Xc = dc.make_features(csv)
     pd.testing.assert_frame_equal(Xc, Xd, check_dtype=False)
     assert list(Xd.columns) == json.loads((REAL_MODELS / "feature_columns.json").read_text())["features"]
-    np.testing.assert_array_equal(models["regressor"].predict(Xc), models["regressor"].predict(Xd))
-    np.testing.assert_array_equal(models["classifier"].predict_proba(Xc), models["classifier"].predict_proba(Xd))
+    # identical inputs (checked above); a forest averages its trees in parallel, so the last
+    # bits of the sum can differ between calls (~1e-14 min) - compare to far below a second
+    np.testing.assert_allclose(models["regressor"].predict(Xc), models["regressor"].predict(Xd), rtol=0, atol=1e-9)
+    np.testing.assert_allclose(models["classifier"].predict_proba(Xc), models["classifier"].predict_proba(Xd),
+                               rtol=0, atol=1e-9)
     assert mi.unknown_categories(Xd, models["regressor"]) == {}
     assert not set(TARGET_COLUMNS) & set(Xd.columns)

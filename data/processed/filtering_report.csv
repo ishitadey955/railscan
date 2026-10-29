@@ -1,14 +1,16 @@
 kind,reason,count
-row_dropped,missing/invalid seq,1969
-row_dropped,no next station (last stop of journey),1969
-row_dropped,current stop not reported (reported != 1),2093
-row_dropped,next stop not reported (target not observed),1781
-row_dropped,next actual arrival timestamp invalid/missing,78
-row_dropped,missing target (next arrival delay),14
-row_dropped,next regular stop missing from this journey's record,459
-row_dropped,duplicate observation after merging journeys,142
-value_blanked_or_filled,"arrival delay: source field invalid, computed from timestamps",5455
-value_blanked_or_filled,"departure delay: source field invalid, computed from timestamps",871
-value_blanked_or_filled,scheduled arrival rebuilt via midnight-rollover (explicit date missing),96
-value_blanked_or_filled,scheduled departure rebuilt via midnight-rollover (explicit date missing),96
-row_dropped,"size reduction to 1500 rows (whole journeys, even time spacing)",33773
+row_dropped,missing/invalid seq,218398
+row_dropped,no next station (last stop of journey),218948
+row_dropped,current stop not reported (reported != 1),731094
+row_dropped,next stop not reported (target not observed),289345
+row_dropped,current station outside the covered states,790766
+row_dropped,"duplicate stop (same train, date, seq)",1437
+row_dropped,next regular stop missing from this journey's record,12970
+row_dropped,invalid station code,550
+row_dropped,next station equals current station,9
+row_dropped,invalid train number (not 4-5 digits),2513
+row_dropped,source delay field contradicts its own timestamps,58
+row_dropped,row budget 950000: oldest journey dates dropped,1647694
+value_blanked_or_filled,"arrival delay: source field invalid, computed from timestamps",651996
+value_blanked_or_filled,"departure delay: source field invalid, computed from timestamps",190411
+value_blanked_or_filled,distance_to_next_km negative -> blank,3

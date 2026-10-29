@@ -4,7 +4,7 @@ The Streamlit app reads `data/processed/RailScan_Master_Dataset.csv` directly; t
 
 ### Why SQLite
 
-RailScan's data is small (1,500 observation rows and about 9k stations), read far more often than it is written, and used by one process at a time. SQLite gives indexed lookups, transactions and constraints with no server to install: the whole database is one file that ships with the project, and Python's built-in `sqlite3` module is the only dependency. Before this stage, every train-state lookup loaded the whole processed CSV into memory; now a lookup reads one journey through an index.
+RailScan's railway data (933,301 observation rows for northern India, about 9k stations and a 65k-stop timetable; a 570 MB file) is read far more often than it is written, and used by one process at a time. SQLite gives indexed lookups, transactions and constraints with no server to install: the whole database is one file that ships with the project, and Python's built-in `sqlite3` module is the only dependency. Before this stage, every train-state lookup loaded the whole processed CSV into memory; now a lookup reads one journey through an index.
 
 ### Location
 
@@ -111,7 +111,7 @@ repo.get_database_statistics()
 
 ### Verification
 
-Re-import of the 1,500-row dataset on 2026-10-29 (corrected next-stop rule, 85 journeys): 1,500 rows and 8,965 stations imported, 0 rejected, 0 values set to NULL, 0 foreign-key violations. The table below was measured on 2026-10-14 against the earlier 11,697-row dataset.
+Import of the northern-India dataset on 2026-10-30: 933,301 rows imported in 3 min 42 s (in chunks of 100,000 rows, so memory stays bounded), 0 rejected, 0 values set to NULL, 0 foreign-key violations; accounts and history in the same file were kept. The same import from `RailScan_Final_Dataset.parquet` (used on fresh servers) gives a table identical row by row. The app reads one train at a time (`load_master_db(train_no=...)`), and the Data page's totals are computed in SQL. The table below was measured on 2026-10-14 against an earlier 11,697-row dataset.
 
 | Check | Result |
 |---|---|
@@ -125,7 +125,8 @@ Re-import of the 1,500-row dataset on 2026-10-29 (corrected next-stop rule, 85 j
 
 ### Known limitations
 
-- **History is sample-limited.** Historical statistics only see journeys inside the processed sample. The current dataset has 2 trains on one route (22 station codes, 85 journeys), so the database covers only that route.
+- **History is sample-limited.** Historical statistics only see journeys inside the processed dataset: northern-Indian stations, 23 Jul – 1 Sep 2026.
+- **Station codes without a name.** Codes newer than the 2016 station list are added from `station_master_supplement.csv` where a name could be verified; others stay unnamed (`unknown_station_codes` in the import report).
 - **Actual times are derived.** `actual_arrival` and `actual_departure` are scheduled time + delay, not raw timestamps.
 - **No row for a journey's last stop.** The dataset only keeps stops whose next stop was also observed, so the last stop of a journey has no `train_runs` row.
 - **`train_type` changes between journeys**, so `train_metadata.train_type` is NULL for both current trains. The train lookup in `src/railway` returns `ambiguous_train` when no journey date is given (this behaviour comes from stage 5).

@@ -1,110 +1,111 @@
 {
-  "created_at": "2026-10-28T20:41:55+00:00",
+  "created_at": "2026-10-29T21:29:17+00:00",
   "source": {
     "dataset": "yadavsaurabh/indian-railways-runs",
     "license": "GPL-3.0",
     "url": "https://huggingface.co/datasets/yadavsaurabh/indian-railways-runs"
   },
   "selection": {
-    "method": "whole journeys, golden-ratio even spacing over date-sorted journeys, gap filled exactly; history features recomputed inside the sample",
-    "input_file": "RailScan_Full_Dataset.csv",
-    "input_rows": 35273,
-    "input_journeys": 1960,
-    "target_rows": 1500,
-    "selected_rows": 1500
+    "method": "trains with a scheduled halt in a covered state (northern India, West Bengal); their journeys in the download window; observations whose current station is in a covered state; oldest dates dropped to fit the row budget; history features computed inside the kept rows",
+    "covered_states": [
+      "Jammu and Kashmir",
+      "Ladakh",
+      "Himachal Pradesh",
+      "Punjab",
+      "Chandigarh",
+      "Haryana",
+      "Delhi",
+      "Rajasthan",
+      "Uttar Pradesh",
+      "Uttarakhand",
+      "West Bengal"
+    ],
+    "download": {
+      "window": {
+        "from": "2026-07-04",
+        "to": "2026-09-01",
+        "days": 60
+      },
+      "active_days": 30,
+      "northern_trains": 5331,
+      "downloaded": 5300,
+      "failed": [],
+      "source": "https://huggingface.co/datasets/yadavsaurabh/indian-railways-runs",
+      "license": "GPL-3.0"
+    },
+    "max_rows": 950000,
+    "source_rows": 4831683,
+    "selected_rows": 924706
   },
-  "rows": 1500,
+  "rows": 924706,
   "columns_final": 40,
   "columns_master": 50,
-  "journeys": 85,
-  "unique_trains": 2,
-  "trains": [
-    "01023",
-    "01024"
-  ],
-  "unique_stations": 22,
-  "station_codes": [
-    "BVQ",
-    "HTK",
-    "JJR",
-    "JSP",
-    "KOP",
-    "KOV",
-    "KRD",
-    "KRG",
-    "LNN",
-    "MRJ",
-    "MSR",
-    "NIRA",
-    "PUNE",
-    "RKD",
-    "RMP",
-    "SLI",
-    "SSV",
-    "STR",
-    "TAZ",
-    "TKR",
-    "VV",
-    "WTR"
-  ],
+  "journeys": 73935,
+  "unique_trains": 5068,
+  "trains": 5068,
+  "unique_stations": 3267,
+  "station_codes": 3267,
   "date_range": {
-    "min": "2023-11-05",
-    "max": "2026-08-28"
+    "min": "2026-08-11",
+    "max": "2026-09-01"
   },
   "timezone": "Asia/Kolkata (IST, UTC+05:30); timestamps are naive local times",
   "splits": {
     "train": {
-      "rows": 1055,
-      "min": "2023-11-05",
-      "max": "2025-10-26"
+      "rows": 655243,
+      "min": "2026-08-11",
+      "max": "2026-08-25"
     },
     "validation": {
-      "rows": 223,
-      "min": "2025-11-13",
-      "max": "2026-03-20"
+      "rows": 131475,
+      "min": "2026-08-26",
+      "max": "2026-08-28"
     },
     "test": {
-      "rows": 222,
-      "min": "2026-04-06",
-      "max": "2026-08-28"
+      "rows": 137988,
+      "min": "2026-08-29",
+      "max": "2026-09-01"
     }
   },
   "duplicate_keys_train_date_seq": 0,
   "missing_pct_master": {
-    "actual_stop_min": 7.53,
-    "stop_variation_min": 7.53,
-    "current_departure_delay_min": 7.53,
-    "historical_avg_delay_min": 2.47,
-    "historical_delay_std_min": 4.93,
-    "historical_on_time_rate_pct": 2.47,
-    "historical_avg_actual_stop_min": 2.47,
-    "historical_stop_std_min": 4.93,
-    "historical_stop_reliability_pct": 2.47,
-    "actual_departure": 7.53,
-    "departure_delay_min": 7.53
+    "station_name": 3.71,
+    "next_station_name": 3.81,
+    "actual_stop_min": 13.36,
+    "stop_variation_min": 13.36,
+    "current_departure_delay_min": 13.36,
+    "historical_avg_delay_min": 6.85,
+    "historical_delay_std_min": 13.58,
+    "historical_on_time_rate_pct": 6.85,
+    "historical_avg_actual_stop_min": 12.65,
+    "historical_stop_std_min": 19.97,
+    "historical_stop_reliability_pct": 12.65,
+    "actual_departure": 13.36,
+    "departure_delay_min": 13.36
   },
   "target_next_station_delayed_15": {
-    "0": 608,
-    "1": 892
+    "0": 524525,
+    "1": 400181
   },
   "target_risk_label": {
-    "Medium": 740,
-    "Low": 608,
-    "High": 152
+    "Low": 524525,
+    "Medium": 304240,
+    "High": 95941
   },
   "next_station_arrival_delay_min": {
-    "count": 1500.0,
-    "mean": 26.59,
-    "std": 25.64,
-    "min": -28.0,
-    "25%": 9.0,
-    "50%": 20.0,
-    "75%": 38.0,
-    "max": 161.0
+    "count": 924706.0,
+    "mean": 24.79,
+    "std": 44.93,
+    "min": -166.0,
+    "25%": 4.0,
+    "50%": 12.0,
+    "75%": 28.0,
+    "max": 1684.0
   },
   "stop_category_scheduled": {
-    "Short": 1460,
-    "Moderate": 40
+    "Short": 833153,
+    "Moderate": 82482,
+    "Long": 9071
   },
   "definitions": {
     "next_station_delayed_15": "1 if next_station_arrival_delay_min >= 15 else 0",
@@ -126,12 +127,7 @@
       "negative_scheduled_travel": 0
     },
     "raw_source_cross_check": {
-      "status": "checked",
-      "rows_matched_to_raw": 1500,
-      "rows_total": 1500,
-      "scheduled_arrival_matches_raw_pct": 100.0,
-      "arrival_delay_within_1min_of_raw_pct": 100.0,
-      "rows_compared_for_delay": 1280
+      "status": "skipped (rows come straight from the downloaded source files)"
     }
   }
 }

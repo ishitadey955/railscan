@@ -86,6 +86,8 @@ def departure_stations(tt: pd.DataFrame, train_no: str) -> List[dict]:
     """Stops the train departs from (every stop except the destination)."""
     r = route(tt, train_no)
     r = r[r.sch_departure.notna()]
-    return [{"code": x.station_code, "name": x.station_name or x.station_code, "seq": int(x.seq),
-             "label": f"{x.station_name or x.station_code} ({x.station_code}) - dep. {x.sch_departure}"}
+    named = lambda x: isinstance(x.station_name, str) and x.station_name.strip()
+    return [{"code": x.station_code, "name": x.station_name if named(x) else x.station_code, "seq": int(x.seq),
+             "label": (f"{x.station_name} ({x.station_code})" if named(x) else x.station_code)
+                      + f" - dep. {x.sch_departure}"}
             for x in r.itertuples()]

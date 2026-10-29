@@ -49,6 +49,9 @@ from .schema import (
 )
 
 DEFAULT_DATASET = ROOT / "data" / "processed" / "RailScan_Final_Dataset.csv"
+# compact copy of the same file (every value kept as the CSV's text); used where the large
+# CSV is not available, e.g. a fresh server cloned from GitHub (file size limit 100 MB)
+DEFAULT_PARQUET = DEFAULT_DATASET.with_suffix(".parquet")
 DEFAULT_STATION_DIR = ROOT / "data" / "stations"
 DEFAULT_TIMETABLE = ROOT / "data" / "processed" / "RailScan_Timetable.csv"
 SPLIT_FILES = ("train.csv", "validation.csv", "test.csv")
@@ -108,6 +111,8 @@ def find_dataset_file(path: Optional[PathLike] = None) -> Optional[Path]:
         return p if p.is_file() else None
     if DEFAULT_DATASET.is_file():
         return DEFAULT_DATASET
+    if DEFAULT_PARQUET.is_file():
+        return DEFAULT_PARQUET
     for p in sorted(ROOT.rglob("RailScan_Final_Dataset.csv")):
         if ".git" not in p.parts and "site-packages" not in p.parts:
             return p
@@ -327,6 +332,45 @@ def rebuild_train_metadata(conn: sqlite3.Connection) -> int:
     return len(per)
 
 
+CHUNK_ROWS = 100_000
+
+
+def export_parquet(csv_path: PathLike = DEFAULT_DATASET, out: PathLike = DEFAULT_PARQUET) -> Path:
+    """Write the dataset CSV as Parquet with every value kept as its CSV text (blank -> empty string)."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    writer = None
+    try:
+        for chunk in pd.read_csv(csv_path, dtype=str, keep_default_na=False, chunksize=CHUNK_ROWS):
+            table = pa.Table.from_pandas(chunk, preserve_index=False)
+            writer = writer or pq.ParquetWriter(str(out), table.schema, compression="zstd", compression_level=9)
+            writer.write_table(table)
+    finally:
+        if writer is not None:
+            writer.close()
+    return Path(out)
+
+
+def _read_chunks(path: Path, columns: Optional[List[str]] = None, chunk_rows: Optional[int] = CHUNK_ROWS):
+    """The dataset file as DataFrames of text, read like pd.read_csv(dtype=str): blank -> NaN."""
+    if path.suffix == ".parquet":
+        import pyarrow.parquet as pq
+        pf = pq.ParquetFile(str(path))
+        batches = pf.iter_batches(batch_size=chunk_rows or pf.metadata.num_rows, columns=columns)
+        return (b.to_pandas().replace("", np.nan) for b in batches)
+    read = dict(dtype=str, keep_default_na=True, encoding="utf-8-sig", usecols=columns)
+    return pd.read_csv(path, chunksize=chunk_rows, **read) if chunk_rows else iter([pd.read_csv(path, **read)])
+
+
+def _keys_unique(path: Path) -> bool:
+    """True when no (train, journey date, seq) key repeats in the file (cheap pre-pass on 3 columns)."""
+    k = pd.concat(_read_chunks(path, ["train_no", "journey_date", "seq"], chunk_rows=None))
+    key = pd.DataFrame({"t": k.train_no.str.strip().str.lstrip("0"),
+                        "d": pd.to_datetime(k.journey_date, errors="coerce", format="ISO8601").dt.strftime("%Y-%m-%d"),
+                        "s": pd.to_numeric(k.seq, errors="coerce")})
+    return not key.duplicated().any()
+
+
 def import_dataset(csv_path: Optional[PathLike] = None, db_path: Optional[PathLike] = None, *,
                    replace: bool = False, duplicate_policy: str = "fail", batch_size: int = 1000) -> ImportReport:
     """Import RailScan_Final_Dataset.csv into ``train_runs`` / ``train_metadata``. Never raises."""
@@ -352,22 +396,10 @@ def import_dataset(csv_path: Optional[PathLike] = None, db_path: Optional[PathLi
     sha = None
     try:
         sha = file_sha256(path)
-        frame = pd.read_csv(path, dtype=str, keep_default_na=True, encoding="utf-8-sig")
-        report.rows_read = len(frame)
-        if frame.empty:
-            raise ImportFailed(f"{path} contains no rows")
-        df = prepare_train_runs(frame, report)
-        df = _dedupe(df, ["train_key", "journey_date", "seq"], report, duplicate_policy)
-        if df.empty:
-            raise ImportFailed("no valid rows left after validation")
-
-        cols = list(df.columns)
-        rows = [tuple(_py(v) for v in rec) for rec in df.astype(object).itertuples(index=False, name=None)]
-        placeholders = ", ".join("?" for _ in cols)
-        updates = ", ".join(f"{c} = excluded.{c}" for c in cols if c not in ("train_key", "journey_date", "seq"))
-        sql = (f"INSERT INTO train_runs ({', '.join(cols)}) VALUES ({placeholders}) "
-               f"ON CONFLICT(train_key, journey_date, seq) DO UPDATE SET {updates}")
-
+        # Large datasets (the northern-India one has ~930k rows) are imported in chunks, so
+        # memory stays bounded. Duplicates need the whole file, so if any key repeats, the
+        # file is read at once and _dedupe applies the duplicate policy as before.
+        chunks = _read_chunks(path, chunk_rows=CHUNK_ROWS if _keys_unique(path) else None)
         initialize_database(db)
         with connect(db) as conn:
             with transaction(conn):
@@ -375,23 +407,42 @@ def import_dataset(csv_path: Optional[PathLike] = None, db_path: Optional[PathLi
                     report.rows_replaced = table_count(conn, "train_runs")
                     conn.execute("DELETE FROM train_runs")
                 before = table_count(conn, "train_runs")
-                conn.executemany("INSERT OR IGNORE INTO train_metadata (train_no) VALUES (?)",
-                                 sorted({(r[cols.index("train_no")],) for r in rows}))
-                for chunk in _batches(rows, batch_size):
-                    conn.executemany(sql, chunk)
+                imported, codes = 0, set()
+                for frame in chunks:
+                    report.rows_read += len(frame)
+                    df = prepare_train_runs(frame, report)
+                    df = _dedupe(df, ["train_key", "journey_date", "seq"], report, duplicate_policy)
+                    if df.empty:
+                        continue
+                    cols = list(df.columns)
+                    placeholders = ", ".join("?" for _ in cols)
+                    updates = ", ".join(f"{c} = excluded.{c}" for c in cols
+                                        if c not in ("train_key", "journey_date", "seq"))
+                    sql = (f"INSERT INTO train_runs ({', '.join(cols)}) VALUES ({placeholders}) "
+                           f"ON CONFLICT(train_key, journey_date, seq) DO UPDATE SET {updates}")
+                    rows = [tuple(_py(v) for v in rec) for rec in df.astype(object).itertuples(index=False, name=None)]
+                    conn.executemany("INSERT OR IGNORE INTO train_metadata (train_no) VALUES (?)",
+                                     sorted({(r[cols.index("train_no")],) for r in rows}))
+                    for batch in _batches(rows, batch_size):
+                        conn.executemany(sql, batch)
+                    imported += len(rows)
+                    codes |= set(df["station_code"].dropna()) | set(df["next_station_code"].dropna())
+                if report.rows_read == 0:
+                    raise ImportFailed(f"{path} contains no rows")
+                if imported == 0:
+                    raise ImportFailed("no valid rows left after validation")
                 after = table_count(conn, "train_runs")
                 rebuild_train_metadata(conn)
-                report.rows_imported = len(rows)
+                report.rows_imported = imported
                 report.rows_inserted = after - before
-                report.rows_updated = len(rows) - report.rows_inserted
+                report.rows_updated = imported - report.rows_inserted
                 report.table_rows_after = after
-                report.rows_in_db_not_in_csv = after - len(rows)
+                report.rows_in_db_not_in_csv = after - imported
                 if report.rows_in_db_not_in_csv:
                     report.warnings.append(
                         f"{report.rows_in_db_not_in_csv} row(s) in train_runs are not in this CSV (kept). "
                         "Use --replace after regenerating the dataset.")
                 if table_count(conn, "stations"):
-                    codes = set(df["station_code"].dropna()) | set(df["next_station_code"].dropna())
                     known = set()
                     code_list = sorted(codes)
                     for i in range(0, len(code_list), 500):

@@ -32,22 +32,27 @@ class DataUnavailable(RuntimeError):
     pass
 
 
-def load_master(path: Path = MASTER_CSV, source: str = "auto") -> pd.DataFrame:
-    """The 1,500 observations. ``source``: "auto" (SQLite if it holds the data, else CSV), "sqlite", "csv".
-
-    ``df.attrs["source"]`` says which one was used.
+def load_master(path: Path = MASTER_CSV, source: str = "auto", train_no: Optional[str] = None) -> pd.DataFrame:
+    """The observations (all, or one train's). ``source``: "auto" (SQLite if it holds the data,
+    else CSV), "sqlite", "csv". ``df.attrs["source"]`` says which one was used.
     """
     if source in ("auto", "sqlite"):
         from src.database.app_data import data_ready, load_master_db
         if data_ready():
-            df = load_master_db()
+            df = load_master_db(train_no=train_no)
             df.attrs["source"] = "SQLite"
             return df
         if source == "sqlite":
             raise DataUnavailable("The SQLite database has no railway data. Run: python scripts/setup_database.py all")
     if not Path(path).exists():
         raise DataUnavailable(f"Dataset not found: {path}. Run: python scripts/prepare_dataset.py")
-    df = pd.read_csv(path, dtype={"train_no": str})
+    if train_no is None:
+        df = pd.read_csv(path, dtype={"train_no": str})
+    else:                                   # the file is large: read in chunks, keep one train
+        want = str(train_no).zfill(5)
+        df = pd.concat([c[c.train_no.str.zfill(5) == want]
+                        for c in pd.read_csv(path, dtype={"train_no": str}, chunksize=200_000)],
+                       ignore_index=True)
     df["train_no"] = df["train_no"].str.zfill(5)
     for c in DATETIME_COLS:
         if c in df.columns:
@@ -69,6 +74,11 @@ def journey_dates(df: pd.DataFrame, train_no: str) -> List:
 
 def journey(df: pd.DataFrame, train_no: str, journey_date) -> pd.DataFrame:
     return df[(df.train_no == train_no) & (df.journey_date == journey_date)].sort_values("seq")
+
+
+def _station_label(name, code) -> str:
+    """'NEW DELHI (NDLS)', or just the code when no name is known (missing names are NaN)."""
+    return f"{name} ({code})" if isinstance(name, str) and name.strip() else str(code)
 
 
 def _num(v) -> Optional[float]:
@@ -175,7 +185,7 @@ def upcoming_table(df: pd.DataFrame, j: pd.DataFrame, row: pd.Series, model_row:
         halt = _num(nxt.iloc[0].scheduled_stop_min) if not nxt.empty else None
         stats = historical_stop_stats(df, current.next_station_code, row.train_no, before=row.observation_time)
         records.append({
-            "Station": f"{current.get('next_station_name') or ''} ({current.next_station_code})".strip(),
+            "Station": _station_label(current.get("next_station_name"), current.next_station_code),
             "Scheduled arrival": current.next_scheduled_arrival,
             "Predicted delay (min)": round(d, 1),
             "Risk": risk_label(d),
@@ -207,7 +217,7 @@ def missing_summary(df: pd.DataFrame) -> pd.DataFrame:
 
 def station_choices(j: pd.DataFrame) -> List[Dict[str, Any]]:
     return [{"code": r.station_code, "name": r.station_name, "seq": int(r.seq),
-             "label": f"{int(r.seq):>2}. {r.station_name or r.station_code} ({r.station_code})"}
+             "label": f"{int(r.seq):>2}. {_station_label(r.station_name, r.station_code)}"}
             for r in j.itertuples()]
 
 

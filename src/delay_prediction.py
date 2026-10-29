@@ -64,7 +64,14 @@ class DelayPredictor:
                                         "models with python scripts/train_delay_models.py")
         meta_path = model_dir / "metadata.json"
         meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
-        return cls(joblib.load(files["regressor"]), joblib.load(files["classifier"]), meta)
+        reg, clf = joblib.load(files["regressor"]), joblib.load(files["classifier"])
+        # The app predicts a few rows at a time; a forest trained with n_jobs=-1 would start a
+        # thread per CPU core for every call, which costs far more than the prediction itself.
+        for pipe in (reg, clf):
+            est = pipe.named_steps.get("model") if hasattr(pipe, "named_steps") else pipe
+            if hasattr(est, "n_jobs"):
+                est.n_jobs = 1
+        return cls(reg, clf, meta)
 
     @staticmethod
     def features(rows: Union[Mapping[str, Any], pd.Series, pd.DataFrame]) -> pd.DataFrame:

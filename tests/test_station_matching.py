@@ -287,3 +287,18 @@ def test_real_master_does_not_force_wrong_stations(real):
     for text in ["DELHI", "दिल्ली", "ಮಂಗಳೂರು"]:
         assert real.match(text)["status"] in ("ambiguous", "possible", "not_identified")
         assert real.match(text)["accepted"] is False
+
+
+# ------------------------------------------------------------ Bengali (real station list + curated aliases)
+@pytest.mark.parametrize("text,code", [("হাওড়া", "HWH"), ("হাওড়া জংশন", "HWH"), ("শিয়ালদহ", "SDAH"),
+                                       ("বর্ধমান জংশন", "BWN"), ("নিউ জলপাইগুড়ি", "NJP")])
+def test_bengali_station_names_match(text, code):
+    from src.railway import StationMaster, StationMatcher
+    m = StationMatcher(StationMaster.load()).match(text)
+    assert m["status"] == "matched" and m["station_code"] == code
+
+
+def test_bengali_script_is_detected_and_transliterated():
+    from src.railway.text_normalizer import detect_script, transliterate_to_latin
+    assert detect_script("বর্ধমান") == "bengali"
+    assert transliterate_to_latin("বর্ধমান") == "vardhamAna"

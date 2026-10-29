@@ -16,19 +16,22 @@ These are two separate machine-learning problems, solved by two separate models:
 ## 2. Data
 | Component | Dataset | Size used | License |
 |---|---|---|---|
-| Delays, timetable, stop statistics | `yadavsaurabh/indian-railways-runs` (Hugging Face): stop-level scheduled and actual times | **1,500 observations**, 85 journeys, 2 trains, 22 stations, Nov 2023 – Aug 2026 | GPL-3.0 |
-| Script CNN, OCR evaluation | `jai23023/indicstr12-signboards` (INDICSTR12 subset) | 963 images after removing 12 duplicates | CC BY 4.0 |
+| Delays, timetable, stop statistics | `yadavsaurabh/indian-railways-runs` (Hugging Face): stop-level scheduled and actual times | **924,706 observations** at stations in northern India and West Bengal, 73,935 journeys, 5,068 trains, 3,267 stations, 11 Aug – 1 Sep 2026 | GPL-3.0 |
+| Script CNN, OCR evaluation | IndicSTR12 signboards: `jai23023/indicstr12-signboards` (Hindi, Marathi, Kannada, Telugu) and `darknight054/indicstr12-full` (Bengali) | 1,310 images after removing duplicates (347 Bengali) | CC BY 4.0 (Bengali copy: licence not stated by the original source; used for research with attribution) |
 | Station names | DataMeet `stations.json` | 8,965 stations | CC0 |
 
 **Unit of observation.** Each row records a train observed at station *S*, together with what happened at the next station *N*.
 
 **Building the observations.** The source lists only the stations where a train halts, while its sequence numbers also count stations passed without stopping. The next stop of an observation is therefore the train's next *regular* stop, not "sequence + 1".
 
-An earlier version used "sequence + 1". That discarded about 18,000 valid rows and left 8 of the 22 stations without training data. It was found when the journey planner showed implausible estimates on those stretches. With the fix there are 35,273 valid observations.
+**Coverage: northern India and West Bengal.** J&K, Ladakh, Himachal Pradesh, Punjab, Chandigarh, Haryana, Delhi, Rajasthan, Uttar Pradesh, Uttarakhand and West Bengal.
+- Every station was placed in a state, using its listed state or its coordinates inside official state boundaries.
+- 5,331 of the source's 12,935 trains halt in these states. The 5,300 still running were downloaded for their last 60 days (4.83 million source rows).
+- Observations whose current station is in a covered state were kept: 2,572,458.
+- To stay under one million rows, the oldest journey dates were dropped, which leaves 924,706 rows (three weeks, because West Bengal's suburban trains run many times a day).
+- 58 source rows whose delay field contradicted their own timestamps were dropped rather than corrected.
 
-**Reduction to 1,500 rows.** The project requirement was a dataset of 1,500 records. These were selected as **whole journeys** (85 of 1,960) in an evenly spaced (golden-ratio) order over time, so the sample still covers the full period and both trains. Every row was cross-checked against the raw source files:
-- scheduled times agree in 100% of rows;
-- recorded delays agree within 1 minute in 100% of rows.
+An earlier version of RailScan used 1,500 rows of two Pune–Kolhapur trains; it is kept for reference in `data/interim/backup_1500_pune_kolhapur/`.
 
 **Derived quantities.**
 - scheduled halt = scheduled departure − scheduled arrival
@@ -47,8 +50,8 @@ Recomputing each of these from the timestamps gives 0 mismatches. Calendar dates
 ### 3.1 Script classification (CNN)
 - **Input:** RGB image, letterboxed to a square with the aspect ratio kept, values scaled to [0, 1].
 - **Augmentation:** only during training (rotation, zoom, shift, contrast). There are no flips, because mirrored text is not valid text.
-- **Classes:** Devanagari, Kannada, Telugu. Hindi and Marathi share the Devanagari script.
-- **Split:** stratified 673 / 145 / 145 (train / validation / test), made after deduplication so that no image appears in two splits.
+- **Classes:** Bengali, Devanagari, Kannada, Telugu. Hindi and Marathi share the Devanagari script.
+- **Split:** stratified 916 / 197 / 197 (train / validation / test), made after deduplication so that no image appears in two splits.
 - **Training:** class weights, Adam, early stopping on validation loss.
 
 Experiments, with the final model selected on **validation** accuracy:
@@ -101,37 +104,39 @@ Experiments, with the final model selected on **validation** accuracy:
 - A regex audit blocks any target, future-time or next-station actual-time column from being used as a feature.
 - A history value counts an earlier row only if that row's outcome was known *strictly before* the current observation. This is verified by an independent brute-force recomputation.
 - The split is chronological, with cut points on journey-date boundaries:
-  - train: 1,055 rows, up to Oct 2025
-  - validation: 223 rows, Nov 2025 – Mar 2026
-  - test: 222 rows, Apr – Aug 2026
+  - train: 655,243 rows, 11 – 25 Aug 2026
+  - validation: 131,475 rows, 26 – 28 Aug 2026
+  - test: 137,988 rows, 29 Aug – 1 Sep 2026
 
-**Model selection.** Linear/Logistic Regression, Random Forest and XGBoost were compared on validation data. The linear models won both tasks.
+**Model selection.** Linear/Logistic Regression, Random Forest and XGBoost were compared on validation data. Random Forest won the regression (validation MAE 3.25 vs 3.35 linear, 4.08 XGBoost); XGBoost won the classification (macro-F1 0.945 vs 0.936 logistic, 0.918 forest).
 
-## 4. Results (test set, 222 rows)
+## 4. Results (test set, 137,988 rows, 4,279 trains)
 | Next-station delay | MAE | RMSE | R² |
 |---|---|---|---|
-| **Linear Regression** | **3.45 min** | **7.81 min** | 0.926 |
-| Baseline: next delay = current delay | 5.95 min | 10.90 min | 0.856 |
+| **Random Forest** | **2.99 min** | **7.19 min** | 0.969 |
+| Baseline: next delay = current delay | 4.38 min | 9.60 min | 0.945 |
 
 | Delayed by 15 min or more | Precision | Recall | F1 | Macro-F1 | ROC-AUC |
 |---|---|---|---|---|---|
-| **Logistic Regression** | 0.975 | 0.908 | **0.940** | 0.931 | 0.982 |
-| Baseline | 0.896 | 0.931 | 0.913 | 0.892 | – |
+| **XGBoost** | 0.940 | 0.935 | **0.937** | 0.946 | 0.988 |
+| Baseline | 0.887 | 0.929 | 0.907 | 0.919 | – |
 
-**Interpretation.** Delay persists between neighbouring stations, so even the naive baseline is fairly strong. The model cuts the average error by 42% (5.95 → 3.45 minutes) and raises macro-F1 from 0.892 to 0.931.
+**Interpretation.** Delay persists between neighbouring stations, so even the naive baseline is strong. The model cuts the average error by 32% (4.38 → 2.99 minutes) and raises macro-F1 from 0.919 to 0.946, across thousands of trains. The test days directly follow the training weeks; other seasons are not covered.
 
-**Journey planner (any date).** The planner places the current timetable on any chosen date. It builds the model input from the delay the user enters, the journey date's calendar and past-only history, and reproduces the training features exactly on all 1,500 recorded rows. It was evaluated by replaying 400 recorded journeys after the training period (7,078 comparisons). The method for later stops was chosen on the validation period and is reported on the test period:
+**Where is my train? (estimate).** Indian Railways offers no public live-status API, so RailScan does not show live positions. For a planned journey it estimates where the train should be now: expected arrival = scheduled arrival + estimated delay, departure = arrival + scheduled halt. Between stations the point is interpolated by time on a straight line between the stops' recorded coordinates. The map is labelled "estimate, not live" (`src/position.py`, 9 tests).
+
+**Journey planner (any date).** The planner places the current timetable on any chosen date. It builds the model input from the delay the user enters, the journey date's calendar and past-only history, and reproduces the training features exactly on recorded rows. It was evaluated by replaying 1,000 recorded journeys after the training period (11,683 comparisons). The method for later stops was chosen on the validation days and is reported on the test days:
 
 | Stops ahead | Shown in the app | Test MAE | Carry-forward MAE |
 |---|---|---|---|
-| 1 | model | **2.66 min** | 3.25 min |
-| 2–3 | current delay carried forward | 5.38 min | 5.38 min |
-| 4–6 | current delay carried forward | 9.31 min | 9.31 min |
-| 7–10 | current delay carried forward | 20.27 min | 20.27 min |
-| 11+ | current delay carried forward | 16.50 min | 16.50 min |
+| 1 | model | **4.07 min** | 4.93 min |
+| 2–3 | current delay + typical recorded change | **5.44 min** | 7.39 min |
+| 4–6 | current delay + typical recorded change | **8.33 min** | 11.04 min |
+| 7–10 | current delay + typical recorded change | **9.14 min** | 13.57 min |
+| 11+ | current delay + typical recorded change | **12.31 min** | 18.76 min |
 
-- Applying the next-stop model stop by stop compounded its small errors and was clearly worse than the baseline, so the app does not do it.
-- Each estimate carries a likely range from past errors at the same distance. These ranges target 80% coverage and achieved 66–82% on test.
+- Applying the next-stop model stop by stop compounded its small errors and was worse, so the app does not do it.
+- Each estimate carries a likely range from past errors at the same distance. These ranges target 80% coverage and achieved 77–83% on test.
 
 **Bugs found and fixed.**
 - **Missing departure delay.** It used to be filled with the training median (about 30 minutes); it is now taken from the arrival delay, the latest observed value. This was found while inspecting test errors, and is reported for transparency.
@@ -149,12 +154,12 @@ The Journey planner works for **any date** (today, future or past). The user pic
 - **Without a delay,** it shows the recorded median delay at every stop, including for the same weekday, labelled as history rather than a forecast.
 - **A "check against a recorded journey" panel** shows a prediction next to what actually happened. There is **no live feed**.
 
-**Testing.** 272 automated tests pass. They cover preprocessing, OCR handling (including real EasyOCR runs), matching, time and date arithmetic, the planner on future dates, leakage, feature consistency, and app-vs-training prediction parity. The 6 skipped tests need a Pillow build with libraqm to draw Indic test text.
+**Testing.** 355 automated tests: 349 pass, 6 skipped. They cover preprocessing, OCR handling (including real EasyOCR runs), matching, time and date arithmetic, the planner on future dates, leakage, feature consistency, and app-vs-training prediction parity. The 6 skipped tests need a Pillow build with libraqm to draw Indic test text.
 
 ## 6. Limitations
-- **Narrow delay data.** Two trains on one route. The models are not validated for other trains, and the app reports inputs it has never seen.
+- **Northern India and West Bengal, three recent weeks.** Observations cover stations in these states from 11 Aug to 1 Sep 2026. Other regions appear only in timetables, and seasonal effects (winter fog) are not in the data.
 - **Modest OCR accuracy** on general scene photos (§3.1–3.2), and scans take about 20–30 s on CPU. Script identification reaches 82.8% only with the OCR evidence. Accuracy on real railway boards has not been measured with a labelled set.
-- **Later-stop estimates are rough.** Beyond the next stop the app carries the current delay forward, with an error of 5–20 minutes. Users must enter the current delay themselves, and the timetable is assumed unchanged.
+- **Later-stop estimates are rough.** Beyond the next stop the error grows from about 5 minutes (2–3 stops) to 12 minutes (11+ stops). Users must enter the current delay themselves, and the timetable is assumed unchanged.
 - **Not deployed.** Deployment to Streamlit Cloud is prepared (CPU-only requirements, instructions) but was not performed in this work.
 
 ## 7. Future work

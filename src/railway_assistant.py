@@ -42,6 +42,12 @@ def _clock(hhmm, offset) -> str:
     return str(hhmm) + (f" (+{days} day)" if days == 1 else f" (+{days} days)" if days > 1 else "")
 
 
+def _label(row) -> str:
+    """'NEW DELHI (NDLS)', or just the code when the station list has no name for it."""
+    name = row.station_name
+    return f"{name} ({row.station_code})" if isinstance(name, str) and name.strip() else str(row.station_code)
+
+
 def station_services(tt: pd.DataFrame, station_code: str) -> pd.DataFrame:
     """Scheduled calls at a station by every train in the timetable (empty if none)."""
     rows = []
@@ -55,11 +61,11 @@ def station_services(tt: pd.DataFrame, station_code: str) -> pd.DataFrame:
         nxt = r.iloc[i + 1] if i + 1 < len(r) else None
         rows.append({
             "Train": f"{train_no} {s.train_name}",
-            "From": f"{origin.station_name or origin.station_code} ({origin.station_code}) {origin.sch_departure}",
-            "To": f"{dest.station_name or dest.station_code} ({dest.station_code})",
+            "From": f"{_label(origin)} {origin.sch_departure}",
+            "To": _label(dest),
             "Arrives": _clock(s.sch_arrival, s.arrival_day_offset),
             "Departs": _clock(s.sch_departure, s.departure_day_offset),
-            "Next stop": f"{nxt.station_name or nxt.station_code} ({nxt.station_code})" if nxt is not None else "terminates",
+            "Next stop": _label(nxt) if nxt is not None else "terminates",
             "Runs on": s.runs_on,
             "train_no": train_no,
         })
@@ -72,6 +78,6 @@ def train_summary(tt: pd.DataFrame, train_no: str) -> Optional[Dict[str, Any]]:
         return None
     o, d = r.iloc[0], r.iloc[-1]
     return {"train_no": str(train_no).zfill(5), "train_name": o.train_name, "stops": int(len(r)),
-            "origin": f"{o.station_name} ({o.station_code})", "departs": o.sch_departure,
-            "destination": f"{d.station_name} ({d.station_code})",
+            "origin": _label(o), "departs": o.sch_departure,
+            "destination": _label(d),
             "arrives": _clock(d.sch_arrival, d.arrival_day_offset), "runs_on": o.runs_on}

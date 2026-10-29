@@ -1,180 +1,180 @@
 {
-  "created_at": "2026-10-28T20:32:21+00:00",
-  "journeys": 400,
-  "model_trained_until": "2025-10-26",
-  "validation_period": "after 2025-10-26 to 2026-03-20",
-  "test_period": "after 2026-03-20",
-  "comparisons": 7078,
+  "created_at": "2026-10-29T23:34:09+00:00",
+  "journeys": 1000,
+  "model_trained_until": "2026-08-25",
+  "validation_period": "after 2026-08-25 to 2026-08-28",
+  "test_period": "after 2026-08-28",
+  "comparisons": 11683,
   "selected_method_by_band": {
     "1": "model",
-    "2-3": "carry",
-    "4-6": "carry",
-    "7-10": "carry",
-    "11-99": "carry"
+    "2-3": "history_change",
+    "4-6": "history_change",
+    "7-10": "history_change",
+    "11-99": "history_change"
   },
-  "later_stops_method": "carry",
+  "later_stops_method": "history_change",
   "likely_range_by_band": {
     "1": [
-      -2.1,
-      4.0
+      -5.7,
+      5.5
     ],
     "2-3": [
-      -7.0,
-      4.0
+      -6.0,
+      9.6
     ],
     "4-6": [
       -7.0,
-      15.0
+      14.4
     ],
     "7-10": [
-      5.0,
-      28.0
+      -10.0,
+      19.0
     ],
     "11-99": [
-      -9.0,
-      31.0
+      -14.0,
+      34.0
     ]
   },
   "by_stops_ahead": [
     {
       "stops_ahead": "1",
-      "validation_comparisons": 235,
-      "test_comparisons": 164,
+      "validation_comparisons": 484,
+      "test_comparisons": 486,
       "validation_mae": {
-        "iterative": 2.25,
-        "carry": 2.25,
-        "model_then_carry": 2.25,
-        "history_change": 2.25,
-        "baseline": 2.61
+        "iterative": 3.83,
+        "carry": 3.83,
+        "model_then_carry": 3.83,
+        "history_change": 3.83,
+        "baseline": 4.51
       },
       "selected": "model",
-      "test_mae_selected": 2.66,
-      "test_bias_selected": -0.76,
-      "test_mae_carry_baseline": 3.25,
+      "test_mae_selected": 4.07,
+      "test_bias_selected": -0.13,
+      "test_mae_carry_baseline": 4.93,
       "test_mae_all": {
-        "iterative": 2.66,
-        "carry": 2.66,
-        "model_then_carry": 2.66,
-        "history_change": 2.66,
-        "baseline": 3.25
+        "iterative": 4.07,
+        "carry": 4.07,
+        "model_then_carry": 4.07,
+        "history_change": 4.07,
+        "baseline": 4.93
       },
       "likely_range_min": [
-        -2.1,
-        4.0
+        -5.7,
+        5.5
       ],
-      "likely_range_test_coverage_pct": 65.9
+      "likely_range_test_coverage_pct": 82.9
     },
     {
       "stops_ahead": "2-3",
-      "validation_comparisons": 470,
-      "test_comparisons": 328,
+      "validation_comparisons": 840,
+      "test_comparisons": 818,
       "validation_mae": {
-        "iterative": 5.87,
-        "carry": 3.8,
-        "model_then_carry": 4.73,
-        "history_change": 5.45,
-        "baseline": 3.8
+        "iterative": 6.19,
+        "carry": 7.55,
+        "model_then_carry": 7.59,
+        "history_change": 5.85,
+        "baseline": 7.55
       },
-      "selected": "carry",
-      "test_mae_selected": 5.38,
-      "test_bias_selected": 1.72,
-      "test_mae_carry_baseline": 5.38,
+      "selected": "history_change",
+      "test_mae_selected": 5.44,
+      "test_bias_selected": -0.53,
+      "test_mae_carry_baseline": 7.39,
       "test_mae_all": {
-        "iterative": 7.36,
-        "carry": 5.38,
-        "model_then_carry": 5.79,
-        "history_change": 7.1,
-        "baseline": 5.38
+        "iterative": 6.21,
+        "carry": 7.39,
+        "model_then_carry": 7.13,
+        "history_change": 5.44,
+        "baseline": 7.39
       },
       "likely_range_min": [
-        -7.0,
-        4.0
+        -6.0,
+        9.6
       ],
-      "likely_range_test_coverage_pct": 72.0
+      "likely_range_test_coverage_pct": 81.1
     },
     {
       "stops_ahead": "4-6",
-      "validation_comparisons": 705,
-      "test_comparisons": 491,
+      "validation_comparisons": 1094,
+      "test_comparisons": 1055,
       "validation_mae": {
-        "iterative": 10.97,
-        "carry": 7.97,
-        "model_then_carry": 9.28,
-        "history_change": 8.29,
-        "baseline": 7.97
+        "iterative": 8.66,
+        "carry": 10.23,
+        "model_then_carry": 10.45,
+        "history_change": 7.19,
+        "baseline": 10.23
       },
-      "selected": "carry",
-      "test_mae_selected": 9.31,
-      "test_bias_selected": -8.03,
-      "test_mae_carry_baseline": 9.31,
+      "selected": "history_change",
+      "test_mae_selected": 8.33,
+      "test_bias_selected": -0.89,
+      "test_mae_carry_baseline": 11.04,
       "test_mae_all": {
-        "iterative": 16.48,
-        "carry": 9.31,
-        "model_then_carry": 11.11,
-        "history_change": 7.9,
-        "baseline": 9.31
+        "iterative": 8.85,
+        "carry": 11.04,
+        "model_then_carry": 10.96,
+        "history_change": 8.33,
+        "baseline": 11.04
       },
       "likely_range_min": [
         -7.0,
-        15.0
+        14.4
       ],
-      "likely_range_test_coverage_pct": 80.4
+      "likely_range_test_coverage_pct": 76.9
     },
     {
       "stops_ahead": "7-10",
-      "validation_comparisons": 934,
-      "test_comparisons": 649,
+      "validation_comparisons": 1174,
+      "test_comparisons": 1185,
       "validation_mae": {
-        "iterative": 13.72,
-        "carry": 16.88,
-        "model_then_carry": 19.09,
-        "history_change": 14.17,
-        "baseline": 16.88
+        "iterative": 10.25,
+        "carry": 14.07,
+        "model_then_carry": 14.09,
+        "history_change": 9.93,
+        "baseline": 14.07
       },
-      "selected": "carry",
-      "test_mae_selected": 20.27,
-      "test_bias_selected": -20.19,
-      "test_mae_carry_baseline": 20.27,
+      "selected": "history_change",
+      "test_mae_selected": 9.14,
+      "test_bias_selected": -0.93,
+      "test_mae_carry_baseline": 13.57,
       "test_mae_all": {
-        "iterative": 22.36,
-        "carry": 20.27,
-        "model_then_carry": 22.3,
-        "history_change": 14.07,
-        "baseline": 20.27
+        "iterative": 10.49,
+        "carry": 13.57,
+        "model_then_carry": 13.47,
+        "history_change": 9.14,
+        "baseline": 13.57
       },
       "likely_range_min": [
-        5.0,
-        28.0
+        -10.0,
+        19.0
       ],
-      "likely_range_test_coverage_pct": 73.8
+      "likely_range_test_coverage_pct": 80.7
     },
     {
       "stops_ahead": "11-99",
-      "validation_comparisons": 1874,
-      "test_comparisons": 1228,
+      "validation_comparisons": 2473,
+      "test_comparisons": 2074,
       "validation_mae": {
-        "iterative": 22.27,
-        "carry": 16.45,
-        "model_then_carry": 17.53,
-        "history_change": 18.01,
-        "baseline": 16.45
+        "iterative": 16.73,
+        "carry": 22.2,
+        "model_then_carry": 22.3,
+        "history_change": 14.75,
+        "baseline": 22.2
       },
-      "selected": "carry",
-      "test_mae_selected": 16.5,
-      "test_bias_selected": -13.92,
-      "test_mae_carry_baseline": 16.5,
+      "selected": "history_change",
+      "test_mae_selected": 12.31,
+      "test_bias_selected": -1.32,
+      "test_mae_carry_baseline": 18.76,
       "test_mae_all": {
-        "iterative": 33.51,
-        "carry": 16.5,
-        "model_then_carry": 17.95,
-        "history_change": 17.55,
-        "baseline": 16.5
+        "iterative": 12.93,
+        "carry": 18.76,
+        "model_then_carry": 18.57,
+        "history_change": 12.31,
+        "baseline": 18.76
       },
       "likely_range_min": [
-        -9.0,
-        31.0
+        -14.0,
+        34.0
       ],
-      "likely_range_test_coverage_pct": 82.0
+      "likely_range_test_coverage_pct": 83.4
     }
   ],
   "note": "carry = starting delay carried forward (baseline); model_then_carry = model for the next stop, then that estimate carried forward; iterative = model applied stop by stop; history_change = starting delay + median recorded change between the two stops for this train (past journeys only). Methods chosen on validation, reported on test. bias = mean(estimate - actual); negative means too optimistic."

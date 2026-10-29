@@ -32,9 +32,10 @@ from src.image.preprocessing import InvalidImageError, letterbox, load_rgb
 from src.image.quality import measure, retake_advice
 from src.railway_assistant import LIVE_DISCLAIMER, match_options, needs_confirmation, station_services, train_summary
 from src.next_station import describe_remaining
-from src.planner import forecast, model_coverage, typical_delays
+from src.planner import METHOD_LABELS, forecast, model_coverage, typical_delays
 from src.stop_analysis import historical_stop_stats
-from src.timetable import TimetableUnavailable, departure_stations, load_timetable, route, runs_on
+from src.position import estimate_from_forecast, estimate_from_typical, map_points
+from src.timetable import TimetableUnavailable, departure_stations, load_timetable, route, runs_on, schedule_on
 from src.railscan_service import (DataUnavailable, analyze, as_time, dataset_overview, journey, journey_dates,
                                   list_trains, load_master, missing_summary, platform_numbers,
                                   station_choices, summarize_ocr_numbers)
@@ -44,11 +45,13 @@ REPORTS = ROOT / "reports"
 PAGES = ["Scan a sign", "Journey planner", "Data and models", "My history"]
 # OCR language strings -> what the user sees
 LANG_NAMES = {"eng+hin+mar": "Devanagari + English", "hin+mar": "Devanagari", "eng+hin": "Hindi + English",
-              "eng+mar": "Marathi + English", "eng+kan": "Kannada + English", "eng+tel": "Telugu + English",
-              "hin": "Hindi", "mar": "Marathi", "kan": "Kannada", "tel": "Telugu", "eng": "English"}
-NOTICE = ("Estimates come from a model trained on **recorded journeys** (Nov 2023 - Aug 2026) and the delay "
-          "you enter. RailScan has **no live train status**. Check official Indian Railways sources before "
-          "travelling.")
+              "eng+mar": "Marathi + English", "eng+kan": "Kannada + English", "eng+tel": "Telugu + English", "eng+ben": "Bengali + English",
+              "hin": "Hindi", "mar": "Marathi", "kan": "Kannada", "tel": "Telugu", "ben": "Bengali", "eng": "English"}
+NOTICE = ("RailScan covers trains that stop in **northern India** (J&K, Ladakh, Himachal, Punjab, Chandigarh, "
+          "Haryana, Delhi, Rajasthan, Uttar Pradesh, Uttarakhand) and **West Bengal**. Estimates come from a model "
+          "trained on "
+          "**recorded journeys** and the delay you enter. RailScan has **no live train status**. Check official "
+          "Indian Railways sources before travelling.")
 
 st.set_page_config(page_title="RailScan", layout="wide")
 
@@ -71,7 +74,7 @@ st.markdown("""
 
 
 # ---------------------------------------------------------------- cached resources
-@st.cache_resource(show_spinner="Preparing the railway database (first start only)...")
+@st.cache_resource(show_spinner="Preparing the railway database (first start only, a few minutes) ...")
 def ensure_railway_db() -> str:
     """Build the SQLite railway tables from the committed CSVs when they are missing (e.g. a fresh server)."""
     from src.database import import_dataset, import_stations, initialize_database
@@ -89,10 +92,31 @@ def ensure_railway_db() -> str:
         return f"not built ({type(exc).__name__}: {exc})"
 
 
-@st.cache_data(show_spinner=False)
-def get_data() -> pd.DataFrame:
+@st.cache_data(show_spinner=False, max_entries=16)
+def train_data(train_no: str) -> pd.DataFrame:
+    """One train's observations (the whole table is too large to keep in memory)."""
     ensure_railway_db()
-    return load_master()
+    return load_master(train_no=train_no)
+
+
+@st.cache_data(show_spinner=False)
+def get_trains() -> pd.DataFrame:
+    """train_no, train_name, journeys, rows for every train in the dataset."""
+    ensure_railway_db()
+    from src.database.app_data import data_ready, train_list_db
+    return train_list_db() if data_ready() else list_trains(load_master())
+
+
+@st.cache_data(show_spinner="Summarising the dataset ...")
+def get_overview() -> dict:
+    ensure_railway_db()
+    from src.database.app_data import data_ready, overview_db
+    if data_ready():
+        return {**overview_db(), "source": "SQLite"}
+    df = load_master()
+    return {"overview": dataset_overview(df), "missing": missing_summary(df),
+            "delays": df.next_station_arrival_delay_min, "source": "CSV",
+            "risk": df.next_delay_risk_label.value_counts().to_dict()}
 
 
 @st.cache_resource(show_spinner=False)
@@ -283,7 +307,7 @@ with st.sidebar:
     st.caption(NOTICE)
 
 try:
-    DATA = get_data()
+    TRAINS = get_trains()
 except DataUnavailable as exc:
     st.error(str(exc))
     st.stop()
@@ -364,7 +388,7 @@ def run_scan(data: bytes) -> dict:
               "cnn_probabilities": res["cnn"]["class_probabilities"]}
     ocr = res["ocr"]
     text = ocr.get("clean_text") or ""
-    numbers = summarize_ocr_numbers(DATA, ocr.get("train_numbers") or [])
+    numbers = summarize_ocr_numbers(TRAINS, ocr.get("train_numbers") or [])
     station = get_matcher().match(ocr) if ocr["status"] == "ok" else None
     st.session_state.scan_counter = st.session_state.get("scan_counter", 0) + 1
     return {"script": script, "ocr": ocr, "numbers": numbers, "station": station,
@@ -424,7 +448,7 @@ def show_scan(scan: dict) -> None:
                f"{m['contrast']:.0f} · sharpness {m['sharpness']:.0f}. For a better photo: fill the frame with "
                "the board, shoot straight on and avoid glare.")
 
-    section("Station", "matched against 8,965 stations")
+    section("Station", f"matched against {len(get_matcher().master.stations):,} stations")
     chosen = choose_station(scan)
 
     section("Train number and platform", "read from the sign")
@@ -466,8 +490,8 @@ def show_scan(scan: dict) -> None:
                    if details and details.get("latitude") is not None else ""))
     services = station_services(get_timetable(), chosen["station_code"])
     if services.empty:
-        st.info(f"No train in RailScan's timetable calls at {name}. RailScan covers only trains 01023 and 01024 "
-                "(Pune - Kolhapur), so other services at this station are not shown.")
+        st.info(f"No train in RailScan's timetable calls at {name}. RailScan covers trains that stop in "
+                "northern India or West Bengal, so services elsewhere are not shown.")
     else:
         st.markdown("Scheduled calls of the trains in RailScan's timetable:")
         st.dataframe(services.drop(columns=["train_no"]), hide_index=True, width="stretch")
@@ -588,9 +612,13 @@ def page_planner() -> None:
             if PREDICTOR is None:
                 st.info("No estimate without the delay model.")
             else:
-                f = forecast(DATA, tt, PREDICTOR, train_no, sjd, shown["station_code"], shown["current_delay_min"],
+                f = forecast(train_data(train_no), tt, PREDICTOR, train_no, sjd, shown["station_code"], shown["current_delay_min"],
                              now=now_ist(), covered=get_coverage())
                 show_forecast(f, sjd)
+                if f["status"] == "ok":
+                    show_position(estimate_from_forecast(schedule_on(tt, train_no, sjd), f, now_ist(),
+                                                         station_coords()),
+                                  "the timetable and the delays estimated above")
                 if submitted and f["status"] == "ok":
                     nx = f["next"]
                     record("forecast",
@@ -606,8 +634,17 @@ def page_planner() -> None:
                                        "expected_arrival": str(r.expected_arrival), "basis": r.basis}
                                       for r in f["route"].itertuples()]})
         else:
-            t = typical_delays(DATA, tt, train_no, sjd)
+            t = typical_delays(train_data(train_no), tt, train_no, sjd)
             show_typical(t, sjd)
+            sched = schedule_on(tt, train_no, sjd)
+            start = sched[sched.station_code == shown["station_code"]]
+            if not start.empty and pd.notna(start.sched_dep.iat[0]):
+                med = t.loc[t.station_code == shown["station_code"], "median_delay_min"]
+                show_position(estimate_from_typical(sched, t, now_ist(), shown["station_code"],
+                                                    start.sched_dep.iat[0],
+                                                    float(med.iat[0]) if len(med) and pd.notna(med.iat[0]) else 0.0,
+                                                    station_coords()),
+                              "the timetable and this train's typical (median) recorded delays")
             if submitted:
                 record("typical", f"{train_no} on {sjd:%d %b %Y}: typical recorded delays",
                        {**shown, "stops": [{"station": r.station_code, "median_delay_min": r.median_delay_min,
@@ -745,7 +782,7 @@ def show_forecast(f: dict, jd) -> None:
     section("Rest of the route", "estimate")
     rd = f["route"]
     show = pd.DataFrame({
-        "Station": [f"{n or c_} ({c_})" for n, c_ in zip(rd.station_name, rd.station_code)],
+        "Station": [f"{n} ({c_})" if isinstance(n, str) and n.strip() else c_ for n, c_ in zip(rd.station_name, rd.station_code)],
         "Scheduled arrival": [clock(t, jd) for t in rd.scheduled_arrival],
         "Estimated delay (min)": rd.predicted_delay_min.round(0),
         "Likely range (min)": [f"{lo:+.0f} to {hi:+.0f}" if lo is not None and not pd.isna(lo) else "-"
@@ -767,15 +804,47 @@ def show_forecast(f: dict, jd) -> None:
         first = (f"Tested on recorded journeys after the training period: for the next stop the model was off by "
                  f"{b1['test_mae_selected']:.1f} min on average (carrying the delay forward: "
                  f"{b1['test_mae_carry_baseline']:.1f} min). ") if b1 else ""
-        st.caption(first + "For later stops no tested method beat carrying the current delay forward, so that is "
-                   "what is shown. The likely range comes from past errors at the same distance and contained the "
+        later = ev.get("later_stops_method", "carry")
+        far = [b for b in ev["by_stops_ahead"] if b["stops_ahead"] != "1"]
+        if later == "carry":
+            rest = "For later stops no tested method beat carrying the current delay forward, so that is what is shown. "
+        else:
+            errs = ", ".join(f"{b['stops_ahead']} stops ahead {b['test_mae_selected']:.0f} min "
+                             f"(carried forward {b['test_mae_carry_baseline']:.0f})" for b in far)
+            rest = (f"For later stops the method chosen on validation is '{METHOD_LABELS.get(later, later)}'; "
+                    f"average error on test journeys: {errs}. Where this train has no recorded history for a "
+                    "stretch, the current delay is carried forward (see Basis). ")
+        st.caption(first + rest + "The likely range comes from past errors at the same distance and contained the "
                    f"actual delay in {min(cov):.0f}-{max(cov):.0f}% of test cases. Estimates, not live running status.")
 
-    sh = historical_stop_stats(DATA, f["station_code"], f["train_no"], before=f["reference_time"])
+    sh = historical_stop_stats(train_data(f["train_no"]), f["station_code"], f["train_no"], before=f["reference_time"])
     if sh:
         st.caption(f"Recorded stops of this train at {f['station_code']}: {sh['count']}; average actual stop "
                    f"{sh['avg_actual_stop_min']:.1f} min; within ±{sh['tolerance_min']} min of the scheduled halt "
                    f"{sh['stop_reliability_pct']:.0f}% of the time.")
+
+
+@st.cache_resource(show_spinner=False)
+def station_coords() -> dict:
+    """code -> (lat, lon) from the station list, used where the timetable has no coordinates."""
+    return {c: (s.latitude, s.longitude) for c, s in get_matcher().master.stations.items()
+            if s.latitude is not None and s.longitude is not None}
+
+
+def show_position(est, basis: str) -> None:
+    section("Where the train should be now", "estimate, not live")
+    if est is None:
+        st.info("Not enough timetable information to place this train.")
+        return
+    pos = est["position"]
+    st.markdown(f"**{now_ist():%d %b %Y, %H:%M}** (now, India time) · {pos['text']}")
+    pts = map_points(est["timeline"], pos)
+    if len(pts):
+        st.map(pts, latitude="lat", longitude="lon", color="color", size="size", height=360)
+    st.caption(f"Estimated from {basis}, assuming the train keeps to them. RailScan has **no live location "
+               "data**: for the actual position check NTES (enquiry.indianrail.gov.in) or station displays. "
+               "Between stations the point is placed on a straight line, so it is approximate. "
+               "Grey = stations on the route, red = estimated train position.")
 
 
 def show_typical(t: pd.DataFrame, jd) -> None:
@@ -787,7 +856,7 @@ def show_typical(t: pd.DataFrame, jd) -> None:
         return "-" if v is None or pd.isna(v) else f_(v)
 
     show = pd.DataFrame({
-        "Station": [f"{n or c_} ({c_})" for n, c_ in zip(t.station_name, t.station_code)],
+        "Station": [f"{n} ({c_})" if isinstance(n, str) and n.strip() else c_ for n, c_ in zip(t.station_name, t.station_code)],
         "Scheduled arrival": [clock(x, jd) for x in t.scheduled_arrival],
         "Scheduled departure": [clock(x, jd) for x in t.scheduled_departure],
         "Median delay (min)": [fmt(v, lambda x: f"{x:+.0f}") for v in t.median_delay_min],
@@ -796,7 +865,7 @@ def show_typical(t: pd.DataFrame, jd) -> None:
         "Recorded arrivals": t.recorded_arrivals,
     })
     st.dataframe(show, hide_index=True, width="stretch")
-    st.caption("From the 1,500-row dataset (whole journeys spread over Nov 2023 - Aug 2026). '-' means no recorded "
+    st.caption("From the recorded journeys in RailScan's dataset (Data and models page). '-' means no recorded "
                "arrival at that stop; weekday medians need at least 5 journeys. Past patterns, not a forecast.")
 
 
@@ -804,15 +873,16 @@ def show_typical(t: pd.DataFrame, jd) -> None:
 def page_replay() -> None:
     st.markdown("Pick a journey that was actually recorded and a stop on it. RailScan predicts the next stop as "
                 "if it were that moment, and shows what really happened.")
-    trains = list_trains(DATA)
+    trains = TRAINS
     labels = {r.train_no: f"{r.train_no} - {r.train_name} ({r.journeys} recorded journeys)"
               for r in trains.itertuples()}
     c1, c2, c3 = st.columns([2, 1, 2])
     train_no = c1.selectbox("Train", list(labels), format_func=labels.get, key="replay_train")
-    dates = journey_dates(DATA, train_no)
+    data = train_data(train_no)
+    dates = journey_dates(data, train_no)
     jd = c2.selectbox("Recorded journey date", dates, format_func=lambda d: d.strftime("%d %b %Y"),
                       key="replay_date")
-    j = journey(DATA, train_no, jd)
+    j = journey(data, train_no, jd)
     choices = station_choices(j)
     pick = c3.selectbox("Observed at station", choices, format_func=lambda c: c["label"], key="replay_station")
 
@@ -825,7 +895,7 @@ def page_replay() -> None:
         override = st.number_input("Current delay in minutes (negative = early)", -60, 600, 20, step=5,
                                    key="replay_delay")
 
-    res = analyze(DATA, PREDICTOR, train_no, jd, pick["code"], seq=pick["seq"], delay_override=override)
+    res = analyze(data, PREDICTOR, train_no, jd, pick["code"], seq=pick["seq"], delay_override=override)
     if res["status"] != "ok":
         st.error(res["message"])
         return
@@ -945,40 +1015,43 @@ def show_analysis(res: dict, j: pd.DataFrame) -> None:
 
 # ================================================================= DATA
 def page_data() -> None:
-    ov = dataset_overview(DATA)
+    info = get_overview()
+    ov = info["overview"]
     section("Railway dataset", "recorded")
-    src = DATA.attrs.get("source", "CSV")
+    src = info["source"]
     from src.database.connection import resolve_db_path
     st.caption(f"Read from the SQLite database ({resolve_db_path()})." if src == "SQLite" else
                "Read from the processed CSV files. Run `python scripts/setup_database.py all` to use SQLite.")
     c = st.columns(4)
     c[0].metric("Observations", f"{ov['rows']:,}")
-    c[1].metric("Journeys", ov["journeys"])
-    c[2].metric("Trains", ov["trains"])
-    c[3].metric("Stations", ov["stations"])
+    c[1].metric("Journeys", f"{ov['journeys']:,}")
+    c[2].metric("Trains", f"{ov['trains']:,}")
+    c[3].metric("Stations", f"{ov['stations']:,}")
     st.markdown(
         "Source: [yadavsaurabh/indian-railways-runs](https://huggingface.co/datasets/yadavsaurabh/indian-railways-runs) "
         "(GPL-3.0), stop-level recorded arrivals and departures, "
         f"**{ov['date_min']:%d %b %Y} to {ov['date_max']:%d %b %Y}**. One row is one observed stop of a train "
-        "on one journey, paired with what happened at the next stop. The 1,500 rows are whole journeys spread "
-        "evenly over the period; see `data/processed/dataset_sources.md`.")
-    st.caption("Coverage is limited to two trains on the Pune-Kolhapur route, so results do not generalise "
-               "to other trains or regions.")
+        "on one journey, paired with what happened at the next stop. It holds every recorded journey in this "
+        "period of the trains that stop in northern India or West Bengal, at stations in those states; see "
+        "`data/processed/dataset_sources.md`.")
+    st.caption("Coverage: northern India (J&K, Ladakh, Himachal Pradesh, Punjab, Chandigarh, Haryana, Delhi, "
+               "Rajasthan, Uttar Pradesh, Uttarakhand) and West Bengal only, and only the recent weeks above. Seasonal effects such as "
+               "winter fog are not in the data, so estimates may be too optimistic in those periods.")
 
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("**Next-station arrival delay (minutes)**")
-        st.altair_chart(delay_histogram(DATA.next_station_arrival_delay_min), width="stretch")
+        st.altair_chart(delay_histogram(info["delays"]), width="stretch")
         st.caption("10-minute bins (negative = early). The first bar holds every delay under -20 min, "
                    "the last every delay of 150 min or more.")
     with c2:
         st.markdown("**Delay category at the next station**")
-        cat = (DATA.next_delay_risk_label.value_counts().reindex(["Low", "Medium", "High"], fill_value=0)
+        cat = (pd.Series(info["risk"]).reindex(["Low", "Medium", "High"], fill_value=0)
                .rename_axis("category").reset_index(name="observations"))
         st.altair_chart(bar_chart(cat, "category", "observations", ["Low", "Medium", "High"]), width="stretch")
         st.caption("Low < 15 min, Medium 15-59 min, High 60 min or more.")
     with st.expander("Missing values"):
-        ms = missing_summary(DATA)
+        ms = info["missing"]
         st.dataframe(ms, hide_index=True, width="stretch") if not ms.empty else st.write("None")
 
     section("Delay models", "measured on held-out data")

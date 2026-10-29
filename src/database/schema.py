@@ -30,7 +30,7 @@ from typing import Dict, List, Optional, Tuple
 
 from .connection import PathLike, connect, transaction
 
-SCHEMA_VERSION = 3          # 2: users, user_history, login_attempts; 3: timetable
+SCHEMA_VERSION = 4          # 2: users, user_history, login_attempts; 3: timetable; 4: timetable coordinates
 
 # ----------------------------------------------------------------------------- train_runs
 # (database column, SQL type, source column in RailScan_Final_Dataset.csv or None if derived)
@@ -85,7 +85,9 @@ TRAIN_RUN_COLUMNS: List[Tuple[str, str, Optional[str]]] = [
 TIMETABLE_COLUMNS = ["train_no", "seq", "station_code", "station_name", "train_name", "train_type",
                      "sch_arrival", "arrival_day_offset", "sch_departure", "departure_day_offset",
                      "distance_km", "distance_to_next_km", "journeys_seen", "runs_on", "timetable_window",
-                     "journeys_in_window"]
+                     "journeys_in_window", "latitude", "longitude"]
+# columns added after a table was first created: (table, column, type); added by initialize_database
+ADDED_COLUMNS = [("timetable", "latitude", "REAL"), ("timetable", "longitude", "REAL")]
 
 TARGET_COLUMNS = ["next_station_arrival_delay_min", "next_station_delayed_15",
                   "next_delay_risk_label", "target_next_actual_arrival"]
@@ -187,6 +189,8 @@ CREATE TABLE IF NOT EXISTS timetable (
     runs_on              TEXT,
     timetable_window     TEXT,
     journeys_in_window   INTEGER,
+    latitude             REAL,          -- median recorded coordinates of the stop (schema v4)
+    longitude            REAL,
     PRIMARY KEY (train_no, seq)
 )""",
     "login_attempts": """
@@ -234,6 +238,10 @@ def initialize_database(db_path: Optional[PathLike] = None) -> Dict[str, object]
                 conn.execute(TABLES[name])
             for ddl in INDEXES:
                 conn.execute(ddl)
+            for table, col, typ in ADDED_COLUMNS:          # upgrade older databases in place
+                have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+                if have and col not in have:
+                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
         if conn.execute("PRAGMA user_version").fetchone()[0] < SCHEMA_VERSION:
             conn.execute(f"PRAGMA user_version = {int(SCHEMA_VERSION)}")
         problems = verify_schema(conn)

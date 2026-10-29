@@ -10,9 +10,9 @@ then compares the planner's estimate at every later recorded stop with the
 recorded arrival delay, by number of stops ahead, against the baseline of
 carrying the starting delay forward unchanged.
 
-Evaluation data: data/interim/RailScan_Full_Dataset.csv (all 35k corrected
-observations), journeys dated after the last training date. History features
-come from the 1,500-row dataset, as in the app.
+Evaluation data: the journeys of the processed dataset dated after the last
+training date (validation and test periods), spread evenly over trains and dates.
+History features come from the same dataset (past-only), as in the app.
 
 Output: reports/planner_evaluation.json
 Usage:  python scripts/evaluate_planner.py [--max-journeys 300]
@@ -38,22 +38,23 @@ from src.timetable import load_timetable  # noqa: E402
 
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--max-journeys", type=int, default=300)
+    ap.add_argument("--max-journeys", type=int, default=1000)
     args = ap.parse_args(argv)
 
-    full = pd.read_csv(ROOT / "data" / "interim" / "RailScan_Full_Dataset.csv", dtype={"train_no": str})
-    full["train_no"] = full.train_no.str.zfill(5)
-    train_end = pd.read_csv(ROOT / "data" / "processed" / "train.csv").journey_date.max()
-    full = full[full.journey_date > train_end]
     df, tt, p, cov = load_master(), load_timetable(), DelayPredictor.load(), model_coverage()
+    df["journey_date"] = df.journey_date.astype(str)
+    train_end = pd.read_csv(ROOT / "data" / "processed" / "train.csv", usecols=["journey_date"]).journey_date.max()
+    full = df[df.journey_date > train_end]
+    by_train = dict(tuple(df.groupby("train_no")))           # forecast() needs only the train's own rows
 
-    val_end = pd.read_csv(ROOT / "data" / "processed" / "validation.csv").journey_date.max()
-    journeys = full.groupby(["train_no", "journey_date"]).size().index.tolist()
+    val_end = pd.read_csv(ROOT / "data" / "processed" / "validation.csv", usecols=["journey_date"]).journey_date.max()
+    journeys = full.groupby(["journey_date", "train_no"]).size().index.tolist()   # date-major: spread over time
     step = max(1, len(journeys) // args.max_journeys)
-    journeys = journeys[::step][:args.max_journeys]
+    journeys = [(t, jd) for jd, t in journeys[::step][:args.max_journeys]]
+    groups = full.groupby(["train_no", "journey_date"])
     rows = []
     for t, jd in journeys:
-        j = full[(full.train_no == t) & (full.journey_date == jd)].sort_values("seq")
+        j = groups.get_group((t, jd)).sort_values("seq")
         start = j[j.current_departure_delay_min.notna()]
         if start.empty:
             continue
@@ -62,7 +63,7 @@ def main(argv=None) -> None:
         actual = dict(zip(j.next_station_code, j.next_station_arrival_delay_min))
         out = {}
         for m in METHODS:
-            f = forecast(df, tt, p, t, jd, s0.station_code, cur, covered=cov, method=m)
+            f = forecast(by_train[t], tt, p, t, pd.Timestamp(jd).date(), s0.station_code, cur, covered=cov, method=m)
             if f["status"] == "ok":
                 out[m] = f["route"]
         if len(out) < len(METHODS):

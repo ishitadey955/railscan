@@ -30,10 +30,11 @@ BLOCKS = {
     "Devanagari": [(0x0900, 0x097F), (0xA8E0, 0xA8FF)],
     "Kannada": [(0x0C80, 0x0CFF)],
     "Telugu": [(0x0C00, 0x0C7F)],
+    "Bengali": [(0x0980, 0x09FF)],          # Bengali-Assamese script
 }
 DEFAULT_OCR_WEIGHT = 35.0         # validated value (reports/script_fusion_evaluation.json) if the report is missing
 DEFAULT_CONFIDENT = 0.70          # likewise: "confident" threshold chosen on validation
-SCRIPTS = ("Devanagari", "Kannada", "Telugu")
+SCRIPTS = ("Devanagari", "Kannada", "Telugu", "Bengali")
 
 
 def _in(ch: str, script: str) -> bool:

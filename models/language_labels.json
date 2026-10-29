@@ -1,5 +1,6 @@
 {
   "classes": [
+    "Bengali",
     "Devanagari",
     "Kannada",
     "Telugu"
@@ -11,6 +12,9 @@
     "Devanagari": [
       "Hindi",
       "Marathi"
+    ],
+    "Bengali": [
+      "Bengali"
     ],
     "Kannada": [
       "Kannada"

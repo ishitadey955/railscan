@@ -37,13 +37,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import delay_common as dc  # noqa: E402
 
 TREE_MODELS = ("Random Forest", "XGBoost")
+# Sized for the northern-India dataset (hundreds of thousands of rows): every tree sees a
+# 10% bootstrap sample (~65k rows), which keeps training time and the saved model size practical.
+RF_SIZE = {"n_estimators": 100, "min_samples_leaf": 10, "max_samples": 0.10}
+IMPORTANCE_ROWS = 20_000          # validation rows used for permutation importance (seeded sample)
 
 
 def regression_candidates(seed: int) -> dict:
     return {
         "Linear Regression": LinearRegression(),
-        "Random Forest": RandomForestRegressor(n_estimators=300, min_samples_leaf=5,
-                                               n_jobs=-1, random_state=seed),
+        "Random Forest": RandomForestRegressor(**RF_SIZE, n_jobs=-1, random_state=seed),
         "XGBoost": XGBRegressor(n_estimators=300, learning_rate=0.05, max_depth=4,
                                 subsample=0.8, colsample_bytree=0.8, random_state=seed,
                                 n_jobs=-1),
@@ -55,8 +58,7 @@ def classification_candidates(seed: int, scale_pos_weight: float) -> dict:
     # all computed from the TRAIN labels only.
     return {
         "Logistic Regression": LogisticRegression(max_iter=3000, class_weight="balanced"),
-        "Random Forest": RandomForestClassifier(n_estimators=300, min_samples_leaf=5,
-                                                class_weight="balanced", n_jobs=-1,
+        "Random Forest": RandomForestClassifier(**RF_SIZE, class_weight="balanced", n_jobs=-1,
                                                 random_state=seed),
         "XGBoost": XGBClassifier(n_estimators=300, learning_rate=0.05, max_depth=4,
                                  subsample=0.8, colsample_bytree=0.8,
@@ -78,6 +80,9 @@ def impurity_importance(pipe: Pipeline) -> pd.Series:
 
 def importance_table(pipe, X_val, y_val, scoring, task, model_name, seed) -> pd.DataFrame:
     """Permutation importance on VALIDATION (raw columns) + built-in importance."""
+    if len(X_val) > IMPORTANCE_ROWS:
+        idx = X_val.sample(IMPORTANCE_ROWS, random_state=seed).index
+        X_val, y_val = X_val.loc[idx], y_val.loc[idx]
     perm = permutation_importance(pipe, X_val, y_val, scoring=scoring, n_repeats=10,
                                   random_state=seed, n_jobs=1)
     out = pd.DataFrame({"feature": X_val.columns,
@@ -175,6 +180,11 @@ def main() -> None:
     joblib.dump(reg_pipe, models_dir / "delay_regressor.pkl")      # full pipeline: prep + model
     joblib.dump(clf_pipe, models_dir / "delay_classifier.pkl")     # full pipeline: prep + model
     joblib.dump(reg_pipe.named_steps["prep"], models_dir / "preprocessor.pkl")
+    # route segments seen in training: the planner uses the model only on these
+    (tr[["train_no", "station_code", "next_station_code"]].astype(str)
+     .assign(train_no=lambda d: d.train_no.str.lstrip("0")).drop_duplicates()
+     .sort_values(["train_no", "station_code", "next_station_code"])
+     .to_csv(models_dir / "coverage.csv", index=False))
     (models_dir / "feature_columns.json").write_text(json.dumps({
         "features": dc.FEATURE_COLUMNS, "numeric": dc.NUMERIC_FEATURES,
         "categorical": dc.CATEGORICAL_FEATURES}, indent=2))

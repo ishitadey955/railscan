@@ -310,7 +310,9 @@ def test_language_mapping_modes_and_codes():
     assert language_candidates("kannada", "native") == ["kan"]
     assert language_candidates("mar", "both") == ["eng+mar", "mar"]
     assert oe.SCRIPT_TO_LANG == {"English": "eng", "Hindi": "hin", "Kannada": "kan", "Marathi": "mar",
-                                 "Telugu": "tel", "Devanagari": "hin+mar"}
+                                 "Telugu": "tel", "Bengali": "ben", "Devanagari": "hin+mar"}
+    assert language_candidates("Bengali") == ["eng+ben"]
+    assert oe.easyocr_languages("eng+ben") == ["bn", "en"]
     # the CNN predicts the Devanagari script; OCR then tries both Devanagari languages
     assert language_candidates("Devanagari") == ["eng+hin+mar"]
     assert oe.easyocr_languages("eng+hin+mar") == ["hi", "mr", "en"]

@@ -30,11 +30,17 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-SCRIPTS = ["Devanagari", "Kannada", "Telugu"]
+from src.script_evidence import SCRIPTS  # noqa: E402  (Devanagari, Kannada, Telugu, Bengali)
 ROWS = ROOT / "reports" / "script_fusion_rows.csv"
 
 
-def collect(limit: int) -> pd.DataFrame:
+def collect(limit: int, reuse: Path | None = None) -> pd.DataFrame:
+    """CNN probabilities and per-script OCR readings for every validation/test image.
+
+    ``reuse``: an earlier rows CSV. OCR readings do not depend on the CNN (same EasyOCR reader,
+    same image, same settings), so a script's reading found there is taken over and only the
+    missing ones are computed. CNN probabilities are always recomputed with the current model.
+    """
     from src.image.prediction import predict_script
     from src.ocr import OCREngine, language_candidates
     from src.script_evidence import native_share
@@ -44,13 +50,24 @@ def collect(limit: int) -> pd.DataFrame:
     if limit:
         meta = meta.groupby(["split", "script_label"], group_keys=False).head(limit)
     eng = OCREngine()
-    rows, t0 = [], time.time()
+    old = {}
+    if reuse is not None and Path(reuse).exists():
+        prev = pd.read_csv(reuse)
+        for r in prev.to_dict("records"):
+            old[r["image_path"]] = {s: (r[f"ocr_conf_{s}"], r[f"ocr_share_{s}"]) for s in SCRIPTS
+                                    if f"ocr_conf_{s}" in r and pd.notna(r.get(f"ocr_conf_{s}"))}
+        print(f"  reusing OCR readings of {len(old)} images from {reuse}", flush=True)
+    rows, t0, reused = [], time.time(), 0
     for i, r in enumerate(meta.itertuples(), 1):
         path = ROOT / r.image_path
         cnn = predict_script(path)
         row = {"image_path": r.image_path, "split": r.split, "true": r.script_label,
                **{f"cnn_{s}": cnn["class_probabilities"][s] for s in SCRIPTS}}
         for s in SCRIPTS:
+            if s in old.get(r.image_path, {}):
+                row[f"ocr_conf_{s}"], row[f"ocr_share_{s}"] = old[r.image_path][s]
+                reused += 1
+                continue
             lang = language_candidates(s)[0]
             res = eng.recognize(path, languages=lang, return_attempts=True)
             usable = res["status"] == "ok"
@@ -58,7 +75,7 @@ def collect(limit: int) -> pd.DataFrame:
             row[f"ocr_share_{s}"] = native_share(res["clean_text"], s) if usable else 0.0
         rows.append(row)
         if i % 20 == 0:
-            print(f"  {i}/{len(meta)} images ({time.time() - t0:.0f}s)", flush=True)
+            print(f"  {i}/{len(meta)} images ({time.time() - t0:.0f}s, {reused} OCR readings reused)", flush=True)
     df = pd.DataFrame(rows)
     df.to_csv(ROWS, index=False)
     return df
@@ -126,8 +143,10 @@ def main(argv=None) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=0, help="images per split and script (0 = all)")
     ap.add_argument("--analyse-only", action="store_true")
+    ap.add_argument("--reuse-ocr", type=Path, default=None,
+                    help="earlier rows CSV whose per-script OCR readings are taken over")
     args = ap.parse_args(argv)
-    df = pd.read_csv(ROWS) if args.analyse_only else collect(args.limit)
+    df = pd.read_csv(ROWS) if args.analyse_only else collect(args.limit, args.reuse_ocr)
     res = analyse(df)
     res.update(created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
                images={"validation": int((df.split == "validation").sum()), "test": int((df.split == "test").sum())})

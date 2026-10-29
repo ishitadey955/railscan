@@ -4,7 +4,7 @@
 
 | Data | Where it lives | Why |
 |---|---|---|
-| Railway data: 1,500 observations, 8,965 stations, timetable | SQLite (`data/database/railscan.db`) | Read-only. It is rebuilt automatically from the committed CSV files the first time the app starts on a new server, which takes a few seconds. |
+| Railway data: 924,706 observations (northern India and West Bengal), stations, timetable of 5,300 trains | SQLite (`data/database/railscan.db`, about 590 MB) | Read-only. It is rebuilt automatically from the committed `data/processed/RailScan_Final_Dataset.parquet` (45 MB) and the timetable CSV the first time the app starts on a new server. That takes about **4–5 minutes**; the page shows "Preparing the railway database" meanwhile. |
 | Accounts and history: `users`, `user_history`, `login_attempts` | **External PostgreSQL** when `RAILSCAN_ACCOUNTS_DB_URL` is set; otherwise the same SQLite file | Must survive restarts. Most hosts (including Streamlit Community Cloud) wipe local files when the app restarts, so accounts kept in SQLite there would be lost. |
 
 The account code (`src/database/users.py` via `accounts_store.py`) runs unchanged on SQLite and PostgreSQL. `tests/test_users.py` runs every account test on both.
@@ -12,7 +12,7 @@ The account code (`src/database/users.py` via `accounts_store.py`) runs unchange
 ## Requirements of the host
 - **Python 3.11** and `pip install -r requirements.txt`. The file pins CPU-only PyTorch, so no GPU packages are downloaded.
 - **About 2 GB of RAM or more.** Measured locally, the app peaks at about 1.8 GB during a sign scan, when TensorFlow, PyTorch and the EasyOCR models are loaded. The journey planner, history and log-in pages use far less. A host with less memory will restart the app on the first scan.
-- About 3.5 GB of disk for the installed packages, plus about 330 MB for the EasyOCR models. The models download on the first scan of each script, and again after every restart on hosts without persistent disk.
+- About 3.5 GB of disk for the installed packages, about 600 MB for the railway database, plus about 330 MB for the EasyOCR models. The models download on the first scan of each script, and again after every restart on hosts without persistent disk.
 
 ---
 
@@ -63,9 +63,9 @@ git remote add origin https://github.com/<your-account>/railscan.git
 git push -u origin main
 ```
 
-**What gets committed:** code, processed CSVs (about 2 MB), the delay models (about 40 KB) and the CNN model (about 24 MB). All are below GitHub's 100 MB file limit, so Git LFS is not needed.
+**What gets committed:** code, `RailScan_Final_Dataset.parquet` (45 MB), the timetable CSV (18 MB), the delay models (about 71 MB, mostly the Random Forest) and the CNN model (about 24 MB). Every file is below GitHub's 100 MB limit, so Git LFS is not needed; GitHub prints a warning for files above 50 MB, which is fine.
 
-**Not committed:** `.venv/`, `data/raw/`, `data/sign_images/`, `data/interim/`, the SQLite file and secrets. Before pushing, check with `git status` that no `.db` file and no `secrets.toml` is listed.
+**Not committed:** `.venv/`, `data/raw/`, `data/sign_images/`, `data/interim/`, the large processed CSVs (333–422 MB), the SQLite file and secrets. Before pushing, check with `git status` that no `.db` file, no large CSV and no `secrets.toml` is listed.
 
 ## Step 4a - Host on Streamlit Community Cloud
 1. Go to https://share.streamlit.io, sign in with GitHub and choose **Create app**.
@@ -75,7 +75,7 @@ git push -u origin main
    RAILSCAN_ACCOUNTS_DB_URL = "postgresql://...your connection string..."
    ```
 4. Choose **Deploy**. The first build installs `requirements.txt`, which takes several minutes because of TensorFlow and PyTorch.
-5. On the first visit, the app builds the railway tables ("Preparing the railway database"). The first scan of each script downloads EasyOCR's models.
+5. On the first visit, the app builds the railway tables from the Parquet file ("Preparing the railway database", about 4–5 minutes). Keep the tab open; later visits are immediate until the app restarts. The first scan of each script downloads EasyOCR's models.
 
 Check the memory limit of the free tier in Streamlit's current documentation against the measured peak of about 1.8 GB. If the app restarts during a scan, use a host with more memory (step 4b). Everything except scanning, including log-in, the planner and history, uses much less memory.
 

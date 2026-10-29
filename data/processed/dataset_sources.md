@@ -11,25 +11,42 @@ Every row and image in RailScan comes from the sources below. Nothing is synthet
 | License | GPL-3.0 (stated on the dataset card) |
 | Railway system | Indian Railways. Third-party historical records, not an official feed |
 | Granularity | One row per train, station and journey date: scheduled and actual arrival/departure, delays, distance, coordinates |
-| Files used | `trains/01023.csv`, `trains/01024.csv` (raw copies in `data/raw/delay/`) |
+| Files used | the 5,300 still-running trains that halt in a covered state (raw copies of their last 60 days in `data/raw/delay_north/`) |
+
+**Coverage: northern India and West Bengal.** Jammu and Kashmir, Ladakh, Himachal Pradesh, Punjab, Chandigarh, Haryana, Delhi, Rajasthan (the Northern Zonal Council), plus Uttar Pradesh, Uttarakhand and West Bengal (`COVERED_STATES` in `scripts/select_northern_trains.py`).
 
 **Processing.**
-1. `scripts/build_dataset.py --local-dir data/raw/delay` built **35,273 observations** for trains 01023 and 01024 (Pune-Kolhapur specials), dated 2023-11-05 to 2026-08-31. Each observation is "train observed at stop S; what happened at the next stop N?".
-   - The next stop is the train's next **regular** stop: a seq present on at least half of its journeys. The source lists only halts, and its seq numbers skip stations that are passed without stopping.
-   - Every dropped row is counted in `filtering_report.csv`. This full file is kept in `data/interim/RailScan_Full_Dataset.csv`.
-   - An earlier build required `next seq = seq + 1`. That kept only 11,697 rows and 14 stations, and is kept for reference as `RailScan_Full_Dataset_v1.csv`.
-2. `scripts/prepare_dataset.py --target-rows 1500` reduced it to **exactly 1,500 rows**, using these rules:
-   - It keeps whole journeys only (85 of 1,960 journeys), chosen in a golden-ratio order over the date-sorted journeys, so the sample spans the full period and both trains.
-   - It recomputes all `historical_*` features inside the 1,500-row sample, with strictly past-only rules.
-   - It splits the data chronologically, about 70/15/15 by rows, with cuts on journey-date boundaries.
-3. Cross-check against the raw files: all 1,500 rows match a raw record. Scheduled arrival agrees in 100% of rows. Arrival delay agrees within 1 minute in 100% of the 1,280 rows where the source delay field is filled.
-4. `scripts/build_timetable.py` writes `RailScan_Timetable.csv`: the most common scheduled arrival and departure (with day offset) of every stop over the last 90 recorded days. The journey planner uses it to place a journey on any date.
+1. **Which trains** (`scripts/select_northern_trains.py`). The source has 12,935 train files (34.7 GB). Only the end of each file was read, which holds its latest journeys, to get the current route.
+   - Each station was placed in a state as follows:
+     - **4,397** stations by the state in the DataMeet station list;
+     - **4,483** by their coordinates inside the state boundaries (geoBoundaries IND ADM1, from DataMeet maps, CC BY 2.5 IN);
+     - **728** newer or renamed codes that are missing from the station list (e.g. PRYJ Prayagraj, VGLJ Jhansi, AYC Ayodhya Cantt) by the coordinates in the running records themselves.
+   - About 300 halt stations have no coordinates anywhere and stay unplaced.
+   - **5,331 trains** have at least one scheduled halt in a covered state. 5,300 of them ran in the last 30 days of the source and were kept.
+2. **Download** (`scripts/download_northern.py`): every journey of those trains that started from 2026-07-04 to 2026-09-01 (60 days), as whole journeys with all source columns. 4,831,683 source rows.
+3. **Observations** (`scripts/build_northern_dataset.py`, which reuses `build_dataset.process_journey`). Each observation is "train observed at stop S; what happened at the next stop N?".
+   - The next stop is the train's next **regular** stop, a seq present on at least half of its journeys.
+   - Only observations whose **current** station is in a covered state are kept. The next stop may lie just across the border.
+   - 58 rows were dropped because the source's delay field contradicts its own timestamps.
+   - Every dropped row is counted by reason in `filtering_report.csv`.
+   - This gives 2,572,458 observations from 5,104 trains.
+4. **Size limit (fewer than a million rows).** West Bengal's suburban (EMU) services run many times a day, so the oldest journey dates were dropped, whole dates at a time, to fit 950,000 rows. That leaves **924,706 observations, 5,068 trains and 3,267 stations, with journeys from 2026-08-11 to 2026-09-01** (three weeks).
+   - The `historical_*` features are computed inside these rows with strictly past-only rules.
+   - The split is chronological, cut on journey-date boundaries: train 655,243 rows (08-11 to 08-25), validation 131,475 (08-26 to 08-28), test 137,988 (08-29 to 09-01).
+5. **Timetable** (`scripts/build_timetable.py`): `RailScan_Timetable.csv` holds the most common scheduled arrival and departure (with day offset) of every stop over the 60 downloaded days. It uses journeys on each train's latest route, keeps the newest code where a station was renamed, and stores the median recorded coordinates of every stop. That is 5,300 trains and 113,498 stops, with full routes including stops outside the covered states. The journey planner and the position estimate use it.
 
 **Limitations.**
-- The sample covers only 2 trains and 22 stations on one route.
-- The timetable is assumed to stay as last recorded (Jun - Aug 2026).
-- Actual arrival and departure times in the master CSV are derived as scheduled time + recorded delay.
-- The last stop of each journey has no row, because it has no next stop.
+- **Time span.** The data covers three weeks (August 2026), so seasonal effects such as winter fog or the monsoon peak are not in it, and each train has only a few weeks of history.
+- **Region.** Only stations in the covered states have observations.
+- **Delay values.**
+  - The source reports 0 for both on-time and early arrivals.
+  - Where its delay field is blank, the delay is computed from the timestamps and can be negative (early). Delays therefore mix both conventions.
+- **Station names.** Codes missing from the 2016 station list get a name from Wikipedia only when the article's infobox states exactly that code (`scripts/build_station_supplement.py`, 123 stations). 2% of timetable stops still have no name, and the app shows their code.
+- **Timetable.** The timetable is assumed to stay as last recorded.
+- **Derived times.** Actual arrival and departure times in the master CSV are derived as scheduled time + recorded delay.
+- **Last stop.** The last stop of each journey has no row, because it has no next stop.
+
+Earlier versions are kept in `data/interim/backup_1500_pune_kolhapur/`: the 1,500-row Pune-Kolhapur version and the 3-script CNN.
 
 ## 2. Signboard images (CNN script classifier)
 
@@ -41,9 +58,11 @@ Every row and image in RailScan comes from the sources below. Nothing is synthet
 | Content | 975 real signboard photos with columns `image`, `language` (hindi/kannada/marathi/telugu), `prompt`, `transcription` |
 | Files | `data/raw/signboards/*.parquet`, verified against the Hugging Face LFS SHA-256 checksums |
 
+**Bengali** (added 2026-10-30): 347 photos from `darknight054/indicstr12-full` (subset `bengali`, pinned revision `b3c5620`, SHA-256-checked), the full-image part of the same IndicSTR12 real dataset (CVIT, IIIT Hyderabad; Lunia, Mondal and Jawahar, ICDAR 2023). The original project page states no licence; the photos are used for research with attribution. `scripts/add_bengali_signboards.py` keeps each distinct image once (10 duplicates removed), saves the original bytes to `data/sign_images/Bengali/` and splits them 70/15/15 with the same rule and seed (243 / 52 / 52).
+
 **Processing.** `scripts/download_datasets.py` removes 12 byte-identical duplicates, which leaves 963 images. It saves the original bytes to `data/sign_images/<Script>/`. It then makes a stratified 70/15/15 split by language (seed 42) and writes `RailScan_CNN_Metadata.csv`.
 
-**Limitations.** These are general Indian signboards (shops, streets, offices), not only railway boards. Hindi and Marathi are both written in Devanagari, so the app's CNN classifies the **script**: Devanagari, Kannada or Telugu.
+**Limitations.** These are general Indian signboards (shops, streets, offices), not only railway boards. Hindi and Marathi are both written in Devanagari, so the app's CNN classifies the **script**: Devanagari, Bengali, Kannada or Telugu.
 
 ## 3. Station master (station names, OCR matching)
 

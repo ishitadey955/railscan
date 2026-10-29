@@ -21,7 +21,7 @@ def _img(h=600, w=900, value=128, noise=True):
 
 
 GOOD_OCR = {"status": "ok", "ocr_confidence": 80.0}
-MATCHED = {"status": "matched", "accepted": True, "station_code": "STR"}
+MATCHED = {"status": "matched", "accepted": True, "station_code": "SPN"}
 
 
 def test_good_photo_and_read_needs_no_retake():
@@ -59,19 +59,20 @@ def test_only_confident_accepted_matches_skip_confirmation():
 
 
 def test_station_services_for_a_station_on_the_route(tt):
-    s = station_services(tt, "STR").set_index("train_no")
-    assert set(s.index) == {"01023", "01024"}
-    assert s.loc["01023", "Arrives"] == "00:22 (+1 day)" and s.loc["01023", "Departs"] == "00:25 (+1 day)"
-    assert s.loc["01023", "Next stop"].endswith("(KRG)")
+    # 12229 Lucknow Mail calls at Shahjahanpur after midnight; many other trains call there too
+    s = station_services(tt, "SPN").set_index("train_no")
+    assert "12229" in s.index and len(s) > 10
+    assert s.loc["12229", "Arrives"] == "00:34 (+1 day)" and s.loc["12229", "Departs"] == "00:36 (+1 day)"
+    assert s.loc["12229", "Next stop"].endswith("(BE)")
 
 
 def test_station_not_served_gives_empty_table(tt):
-    assert station_services(tt, "NDLS").empty
+    assert station_services(tt, "ZZZZ").empty
 
 
 def test_origin_and_terminus(tt):
-    s = station_services(tt, "KOP").set_index("train_no")
-    assert s.loc["01023", "Next stop"] == "terminates" and s.loc["01023", "Departs"] == "-"
-    info = train_summary(tt, "1023")
-    assert info["origin"].endswith("(PUNE)") and info["destination"].endswith("(KOP)") and info["stops"] == 21
+    s = station_services(tt, "NDLS").set_index("train_no")
+    assert s.loc["12229", "Next stop"] == "terminates" and s.loc["12229", "Departs"] == "-"
+    info = train_summary(tt, "12229")
+    assert info["origin"].endswith("(LKO)") and info["destination"].endswith("(NDLS)") and info["stops"] == 9
     assert train_summary(tt, "99999") is None

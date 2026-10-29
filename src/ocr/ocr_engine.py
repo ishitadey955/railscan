@@ -4,7 +4,7 @@ Pipeline for one sign image
     1. detect the script with the existing CNN (``src.image.prediction``),
        unless a script / language is supplied by the caller
     2. map the script to language codes: Hindi->hin, Kannada->kan,
-       Marathi->mar, Telugu->tel, Devanagari->hin+mar; bilingual signs use
+       Marathi->mar, Telugu->tel, Bengali->ben, Devanagari->hin+mar; bilingual signs use
        e.g. ``eng+hin``
     3. choose preprocessing strategies for the image (see ``preprocessing``)
     4. run EasyOCR for each (language, strategy) until a confident result
@@ -17,7 +17,7 @@ Nothing here invents numbers: ``ocr_confidence`` is the mean box confidence
 
 Language strings use three-letter codes (``eng+hin``) and are mapped to
 EasyOCR's codes (``["hi", "en"]``). EasyOCR can combine Hindi and Marathi
-(shared Devanagari model) with English, but Kannada and Telugu each need their
+(shared Devanagari model) with English, but Kannada, Telugu and Bengali each need their
 own reader, so every language combination gets its own cached reader.
 """
 from __future__ import annotations
@@ -61,14 +61,15 @@ SCRIPT_TO_LANG: Dict[str, str] = {
     "Kannada": "kan",
     "Marathi": "mar",
     "Telugu": "tel",
+    "Bengali": "ben",
     # The CNN classifies the SCRIPT. Hindi and Marathi share Devanagari,
     # so a Devanagari prediction tries both language packs.
     "Devanagari": "hin+mar",
 }
 LANG_TO_SCRIPT = {v: k for k, v in SCRIPT_TO_LANG.items()}
-LANG_TO_EASYOCR = {"eng": "en", "hin": "hi", "mar": "mr", "kan": "kn", "tel": "te"}
+LANG_TO_EASYOCR = {"eng": "en", "hin": "hi", "mar": "mr", "kan": "kn", "tel": "te", "ben": "bn"}
 SUPPORTED_LANGUAGES = tuple(SCRIPT_TO_LANG.values())
-NATIVE_SCRIPTS = ("Hindi", "Kannada", "Marathi", "Telugu")
+NATIVE_SCRIPTS = ("Hindi", "Kannada", "Marathi", "Telugu", "Bengali")
 
 
 # --------------------------------------------------------------------------

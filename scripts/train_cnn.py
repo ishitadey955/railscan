@@ -268,7 +268,7 @@ def main(argv=None) -> None:
     (reports_dir / f"cnn_evaluation{suffix}.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     labels = {"classes": classes, "label_mode": args.labels, "image_size": size,
               "preprocessing": f"RGB, letterbox to {size}x{size} (grey padding), float32 / 255",
-              "script_to_languages": {"Devanagari": ["Hindi", "Marathi"], "Kannada": ["Kannada"],
+              "script_to_languages": {"Devanagari": ["Hindi", "Marathi"], "Bengali": ["Bengali"], "Kannada": ["Kannada"],
                                       "Telugu": ["Telugu"]}}
     (models_dir / f"language_labels{suffix}.json").write_text(json.dumps(labels, indent=2), encoding="utf-8")
     print(f"\nSaved {model_path.relative_to(ROOT)} (best epoch {best_epoch}), "

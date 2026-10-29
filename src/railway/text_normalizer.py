@@ -38,6 +38,7 @@ GENERIC_SUFFIXES = {
     "जंक्शन", "जंकशन", "स्टेशन", "स्टेसन", "रेलवे",
     "ಜಂಕ್ಷನ್", "ಜಂಕ್ಷನ", "ನಿಲ್ದಾಣ", "ರೈಲ್ವೆ",
     "జంక్షన్", "స్టేషన్", "రైల్వే",
+    "জংশন", "স্টেশন", "রেলওয়ে", "রেল",
 }
 # Whole trailing phrases removed from OCR text ("... RAILWAY STATION").
 _NOISE_PHRASES = re.compile(r"\b(RAILWAY STATION|RLY STATION|RLY STN|RAILWAY STN)\b")
@@ -46,11 +47,12 @@ _SCRIPT_RANGES = {
     "devanagari": (0x0900, 0x097F),
     "kannada": (0x0C80, 0x0CFF),
     "telugu": (0x0C00, 0x0C7F),
+    "bengali": (0x0980, 0x09FF),
 }
 
 
 def detect_script(text: str) -> str:
-    """'latin' | 'devanagari' | 'kannada' | 'telugu' | 'mixed' | 'other' | 'none'.
+    """'latin' | 'devanagari' | 'kannada' | 'telugu' | 'bengali' | 'mixed' | 'other' | 'none'.
 
     Digits/punctuation are ignored; 'none' means no letters at all.
     """
@@ -95,6 +97,7 @@ def normalize_text(text: Optional[str]) -> str:
 def _fold_indic(s: str) -> str:
     """Spelling folds for lookup keys only."""
     s = s.replace("़", "")            # Devanagari nukta: निज़ामुद्दीन == निजामुद्दीन
+    s = s.replace("়", "")       # Bengali nukta (ড় = ড + ়)
     s = s.replace("ँ", "ं")      # chandrabindu -> anusvara
     s = s.replace("಼", "")            # Kannada nukta
     return s
@@ -134,13 +137,14 @@ def _transliterator():
 
 def transliterate_to_latin(text: str) -> Optional[str]:
     """Rough Latin rendering (Harvard-Kyoto scheme) of Devanagari / Kannada /
-    Telugu text, or ``None`` if the optional library is missing or the text
+    Telugu / Bengali text, or ``None`` if the optional library is missing or the text
     is not one of those scripts."""
     sc = _transliterator()
     script = detect_script(text)
-    if sc is None or script not in ("devanagari", "kannada", "telugu"):
+    if sc is None or script not in ("devanagari", "kannada", "telugu", "bengali"):
         return None
-    src = {"devanagari": sc.DEVANAGARI, "kannada": sc.KANNADA, "telugu": sc.TELUGU}[script]
+    src = {"devanagari": sc.DEVANAGARI, "kannada": sc.KANNADA, "telugu": sc.TELUGU,
+           "bengali": sc.BENGALI}[script]
     try:
         return sc.transliterate(normalize_text(text), src, sc.HK)
     except Exception:

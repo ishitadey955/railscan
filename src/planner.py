@@ -32,17 +32,20 @@ from .timetable import runs_on, schedule_on
 DELAY_THRESHOLD = 15
 ROOT = Path(__file__).resolve().parents[1]
 TRAIN_SPLIT = ROOT / "data" / "processed" / "train.csv"
+COVERAGE = ROOT / "models" / "delay" / "coverage.csv"     # written by scripts/train_delay_models.py
 
 
-def model_coverage(path: Path = TRAIN_SPLIT) -> set:
+def model_coverage(path: Optional[Path] = None) -> set:
     """(train, station, next station) segments that occur in the model's TRAINING rows.
 
     Outside these segments the model has never seen the route, so the planner
-    carries the delay forward instead of extrapolating.
+    carries the delay forward instead of extrapolating. Read from the small
+    coverage file saved with the models, else from the training split.
     """
-    if not Path(path).exists():
+    path = Path(path) if path else (COVERAGE if COVERAGE.exists() else TRAIN_SPLIT)
+    if not path.exists():
         return set()
-    tr = pd.read_csv(path, dtype={"train_no": str}, usecols=["train_no", "station_code", "next_station_code"])
+    tr = pd.read_csv(path, dtype=str, usecols=["train_no", "station_code", "next_station_code"])
     return {(_key(t), a, b) for t, a, b in zip(tr.train_no, tr.station_code, tr.next_station_code)}
 
 

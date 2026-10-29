@@ -1,7 +1,7 @@
 {
   "model_type": {
-    "regressor": "Linear Regression",
-    "classifier": "Logistic Regression"
+    "regressor": "Random Forest",
+    "classifier": "XGBoost"
   },
   "target": {
     "regression": "next_station_arrival_delay_min",
@@ -35,22 +35,22 @@
     "station_code",
     "next_station_code"
   ],
-  "training_date": "2026-10-28T20:01:17+00:00",
-  "train_rows": 1055,
-  "validation_rows": 223,
-  "test_rows": 222,
+  "training_date": "2026-10-29T21:51:57+00:00",
+  "train_rows": 655243,
+  "validation_rows": 131475,
+  "test_rows": 137988,
   "dataset_date_ranges": {
     "train": {
-      "min": "2023-11-05",
-      "max": "2025-10-26"
+      "min": "2026-08-11",
+      "max": "2026-08-25"
     },
     "validation": {
-      "min": "2025-11-13",
-      "max": "2026-03-20"
+      "min": "2026-08-26",
+      "max": "2026-08-28"
     },
     "test": {
-      "min": "2026-04-06",
-      "max": "2026-08-28"
+      "min": "2026-08-29",
+      "max": "2026-09-01"
     }
   },
   "selection": {
@@ -59,102 +59,102 @@
   },
   "imbalance_handling": {
     "method": "class_weight='balanced' (LR, RF); scale_pos_weight (XGB)",
-    "scale_pos_weight": 0.6961414790996785,
+    "scale_pos_weight": 1.318139525010702,
     "decision_threshold": 0.5,
     "positive_rate": {
-      "train": 0.5895734597156398,
-      "validation": 0.6278026905829597,
-      "test": 0.5855855855855856
+      "train": 0.4313804191727344,
+      "validation": 0.4545731127590797,
+      "test": 0.41856538249702874
     }
   },
   "metrics": {
     "validation": {
       "regression": {
         "Linear Regression": {
-          "MAE": 3.1522442579784924,
-          "RMSE": 6.762915250596468,
-          "R2": 0.9060528796660167
+          "MAE": 3.3487989141321965,
+          "RMSE": 7.395985053806445,
+          "R2": 0.9715456429592236
         },
         "Random Forest": {
-          "MAE": 4.595090806646788,
-          "RMSE": 9.419363002714665,
-          "R2": 0.8177537291416729
+          "MAE": 3.2452250614594957,
+          "RMSE": 8.069984029015083,
+          "R2": 0.9661232236145598
         },
         "XGBoost": {
-          "MAE": 4.0808131787007165,
-          "RMSE": 9.230225567172843,
-          "R2": 0.8249991285945365
+          "MAE": 4.077113110096401,
+          "RMSE": 11.672913157079925,
+          "R2": 0.9291213828192347
         }
       },
       "classification": {
         "Logistic Regression": {
-          "accuracy": 0.9013452914798207,
-          "precision": 0.9538461538461539,
-          "recall": 0.8857142857142857,
-          "f1": 0.9185185185185185,
-          "macro_f1": 0.8967592592592593,
-          "balanced_accuracy": 0.9067125645438898,
-          "roc_auc": 0.9755593803786575,
-          "tn": 77,
-          "fp": 6,
-          "fn": 16,
-          "tp": 124
+          "accuracy": 0.9362236166571591,
+          "precision": 0.9347752504738694,
+          "recall": 0.9241863967204886,
+          "f1": 0.929450665948693,
+          "macro_f1": 0.9356303483459365,
+          "balanced_accuracy": 0.9352210745281428,
+          "roc_auc": 0.977707937177783,
+          "tn": 67856,
+          "fp": 3854,
+          "fn": 4531,
+          "tp": 55234
         },
         "Random Forest": {
-          "accuracy": 0.852017937219731,
-          "precision": 0.9147286821705426,
-          "recall": 0.8428571428571429,
-          "f1": 0.8773234200743495,
-          "macro_f1": 0.845441371054124,
-          "balanced_accuracy": 0.8551635111876076,
-          "roc_auc": 0.943631669535284,
-          "tn": 72,
-          "fp": 11,
-          "fn": 22,
-          "tp": 118
+          "accuracy": 0.9187678265830006,
+          "precision": 0.907324116641495,
+          "recall": 0.9147327030870911,
+          "f1": 0.9110133479978003,
+          "macro_f1": 0.9181462508606246,
+          "balanced_accuracy": 0.9184317538584249,
+          "roc_auc": 0.9729968718530508,
+          "tn": 66126,
+          "fp": 5584,
+          "fn": 5096,
+          "tp": 54669
         },
         "XGBoost": {
-          "accuracy": 0.8968609865470852,
-          "precision": 0.9398496240601504,
-          "recall": 0.8928571428571429,
-          "f1": 0.9157509157509157,
-          "macro_f1": 0.8914014694361515,
-          "balanced_accuracy": 0.8982358003442341,
-          "roc_auc": 0.9671256454388983,
-          "tn": 75,
-          "fp": 8,
-          "fn": 15,
-          "tp": 125
+          "accuracy": 0.945198706978513,
+          "precision": 0.9445797807551766,
+          "recall": 0.9342591817953652,
+          "f1": 0.9393911353752198,
+          "macro_f1": 0.944690882562708,
+          "balanced_accuracy": 0.9442875883875724,
+          "roc_auc": 0.9874805475912064,
+          "tn": 68434,
+          "fp": 3276,
+          "fn": 3929,
+          "tp": 55836
         }
       }
     },
     "test": {
       "regression": {
-        "Linear Regression": {
-          "MAE": 3.454826539443001,
-          "RMSE": 7.806163719605505,
-          "R2": 0.926338662459631
+        "Random Forest": {
+          "MAE": 2.9858408498486364,
+          "RMSE": 7.188016215904797,
+          "R2": 0.9689673234603292
         }
       },
       "classification": {
-        "Logistic Regression": {
-          "accuracy": 0.9324324324324325,
-          "precision": 0.9752066115702479,
-          "recall": 0.9076923076923077,
-          "f1": 0.9402390438247012,
-          "macro_f1": 0.9312594182854076,
-          "balanced_accuracy": 0.9375418060200669,
-          "roc_auc": 0.982190635451505,
-          "tn": 89,
-          "fp": 3,
-          "fn": 12,
-          "tp": 118
+        "XGBoost": {
+          "accuracy": 0.9476838565672377,
+          "precision": 0.939965873872619,
+          "recall": 0.9347092127361185,
+          "f1": 0.9373301733642385,
+          "macro_f1": 0.9462158532337255,
+          "balanced_accuracy": 0.9458666528338892,
+          "roc_auc": 0.9884810814876931,
+          "tn": 76783,
+          "fp": 3448,
+          "fn": 3771,
+          "tp": 53986
         }
       }
     }
   },
   "best_tree_models_for_importance": {
-    "regression": "XGBoost",
+    "regression": "Random Forest",
     "classification": "XGBoost"
   },
   "library_versions": {

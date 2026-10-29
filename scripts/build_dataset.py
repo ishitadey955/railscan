@@ -345,6 +345,7 @@ def process_journey(rows: List[dict], log: FilterLog) -> Optional[pd.DataFrame]:
     # -- sequential filters with documented reasons ----------------------------
     def keep(mask: pd.Series, reason: str) -> None:
         nonlocal cur
+        mask = mask.astype(bool)            # an EMPTY object-dtype mask would select columns, not rows
         log.drop(reason, (~mask).sum())
         cur = cur[mask]
 

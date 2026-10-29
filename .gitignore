@@ -29,3 +29,13 @@ reports/ocr_evaluation_rows.csv
 # Secrets (database passwords) - never commit
 .streamlit/secrets.toml
 .env
+
+# Large processed files (hundreds of MB; above GitHub's 100 MB limit). They are rebuilt by
+# scripts/build_northern_dataset.py; RailScan_Final_Dataset.parquet (same rows) is committed
+# and a fresh server builds the database from it.
+data/processed/RailScan_Final_Dataset.csv
+data/processed/RailScan_Master_Dataset.csv
+data/processed/train.csv
+data/processed/validation.csv
+data/processed/test.csv
+data/raw/delay_north/
