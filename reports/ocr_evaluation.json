@@ -1,0 +1,68 @@
+{
+  "created_at": "2026-10-28T18:37:45+00:00",
+  "backend": "easyocr",
+  "images": 145,
+  "seconds": 605.3,
+  "split": "test (RailScan_CNN_Metadata.csv)",
+  "language_given": true,
+  "overall": {
+    "mean_cer": 1.035065751035512,
+    "median_cer": 1.0,
+    "word_recall": 0.286552594351783,
+    "ocr_failed": 52
+  },
+  "by_language": [
+    {
+      "language": "Hindi",
+      "images": 26,
+      "mean_cer": 0.9748785351936256,
+      "median_cer": 1.0,
+      "word_recall": 0.4234931734931735,
+      "ocr_failed": 9
+    },
+    {
+      "language": "Kannada",
+      "images": 44,
+      "mean_cer": 1.2344903826359217,
+      "median_cer": 1.0,
+      "word_recall": 0.17918205160852219,
+      "ocr_failed": 17
+    },
+    {
+      "language": "Marathi",
+      "images": 30,
+      "mean_cer": 1.005199519173138,
+      "median_cer": 1.0,
+      "word_recall": 0.3390958605664488,
+      "ocr_failed": 14
+    },
+    {
+      "language": "Telugu",
+      "images": 45,
+      "mean_cer": 0.8947584349764499,
+      "median_cer": 0.875,
+      "word_recall": 0.2773870573870574,
+      "ocr_failed": 12
+    }
+  ],
+  "examples": [
+    {
+      "language": "Marathi",
+      "cer": 0.0,
+      "reference": "बृहन्मुंबई महानगरपालिका",
+      "ocr_text": "बृहन्मुंबई महानगरपालिका"
+    },
+    {
+      "language": "Telugu",
+      "cer": 1.0,
+      "reference": "వెల్నేస్ హిమాలయా సిన్స్",
+      "ocr_text": "హోమాలయా వెల్నెస సస్ఎ 1930"
+    },
+    {
+      "language": "Telugu",
+      "cer": 6.2,
+      "reference": "రద్దు",
+      "ocr_text": "75 కశ 7 రదు వదు 67తఐడ41 ఇఓ 5ః సగ-సఆ"
+    }
+  ]
+}

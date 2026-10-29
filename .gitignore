@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Large / regenerable data (see README "Large files")
+data/raw/
+data/sign_images/
+data/interim/
+data/database/
+*.db
+
+# Old stage bundles
+railscan_*.zip
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Experiment-variant CNN models (metrics are kept in reports/)
+models/language_classifier_*.keras
+models/language_labels_*.json
+reports/ocr_evaluation_rows.csv
+
+# Secrets (database passwords) - never commit
+.streamlit/secrets.toml
+.env

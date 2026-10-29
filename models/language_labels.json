@@ -1,0 +1,22 @@
+{
+  "classes": [
+    "Devanagari",
+    "Kannada",
+    "Telugu"
+  ],
+  "label_mode": "script",
+  "image_size": 224,
+  "preprocessing": "RGB, letterbox to 224x224 (grey padding), float32 / 255",
+  "script_to_languages": {
+    "Devanagari": [
+      "Hindi",
+      "Marathi"
+    ],
+    "Kannada": [
+      "Kannada"
+    ],
+    "Telugu": [
+      "Telugu"
+    ]
+  }
+}

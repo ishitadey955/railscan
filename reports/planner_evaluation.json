@@ -1,0 +1,181 @@
+{
+  "created_at": "2026-10-28T20:32:21+00:00",
+  "journeys": 400,
+  "model_trained_until": "2025-10-26",
+  "validation_period": "after 2025-10-26 to 2026-03-20",
+  "test_period": "after 2026-03-20",
+  "comparisons": 7078,
+  "selected_method_by_band": {
+    "1": "model",
+    "2-3": "carry",
+    "4-6": "carry",
+    "7-10": "carry",
+    "11-99": "carry"
+  },
+  "later_stops_method": "carry",
+  "likely_range_by_band": {
+    "1": [
+      -2.1,
+      4.0
+    ],
+    "2-3": [
+      -7.0,
+      4.0
+    ],
+    "4-6": [
+      -7.0,
+      15.0
+    ],
+    "7-10": [
+      5.0,
+      28.0
+    ],
+    "11-99": [
+      -9.0,
+      31.0
+    ]
+  },
+  "by_stops_ahead": [
+    {
+      "stops_ahead": "1",
+      "validation_comparisons": 235,
+      "test_comparisons": 164,
+      "validation_mae": {
+        "iterative": 2.25,
+        "carry": 2.25,
+        "model_then_carry": 2.25,
+        "history_change": 2.25,
+        "baseline": 2.61
+      },
+      "selected": "model",
+      "test_mae_selected": 2.66,
+      "test_bias_selected": -0.76,
+      "test_mae_carry_baseline": 3.25,
+      "test_mae_all": {
+        "iterative": 2.66,
+        "carry": 2.66,
+        "model_then_carry": 2.66,
+        "history_change": 2.66,
+        "baseline": 3.25
+      },
+      "likely_range_min": [
+        -2.1,
+        4.0
+      ],
+      "likely_range_test_coverage_pct": 65.9
+    },
+    {
+      "stops_ahead": "2-3",
+      "validation_comparisons": 470,
+      "test_comparisons": 328,
+      "validation_mae": {
+        "iterative": 5.87,
+        "carry": 3.8,
+        "model_then_carry": 4.73,
+        "history_change": 5.45,
+        "baseline": 3.8
+      },
+      "selected": "carry",
+      "test_mae_selected": 5.38,
+      "test_bias_selected": 1.72,
+      "test_mae_carry_baseline": 5.38,
+      "test_mae_all": {
+        "iterative": 7.36,
+        "carry": 5.38,
+        "model_then_carry": 5.79,
+        "history_change": 7.1,
+        "baseline": 5.38
+      },
+      "likely_range_min": [
+        -7.0,
+        4.0
+      ],
+      "likely_range_test_coverage_pct": 72.0
+    },
+    {
+      "stops_ahead": "4-6",
+      "validation_comparisons": 705,
+      "test_comparisons": 491,
+      "validation_mae": {
+        "iterative": 10.97,
+        "carry": 7.97,
+        "model_then_carry": 9.28,
+        "history_change": 8.29,
+        "baseline": 7.97
+      },
+      "selected": "carry",
+      "test_mae_selected": 9.31,
+      "test_bias_selected": -8.03,
+      "test_mae_carry_baseline": 9.31,
+      "test_mae_all": {
+        "iterative": 16.48,
+        "carry": 9.31,
+        "model_then_carry": 11.11,
+        "history_change": 7.9,
+        "baseline": 9.31
+      },
+      "likely_range_min": [
+        -7.0,
+        15.0
+      ],
+      "likely_range_test_coverage_pct": 80.4
+    },
+    {
+      "stops_ahead": "7-10",
+      "validation_comparisons": 934,
+      "test_comparisons": 649,
+      "validation_mae": {
+        "iterative": 13.72,
+        "carry": 16.88,
+        "model_then_carry": 19.09,
+        "history_change": 14.17,
+        "baseline": 16.88
+      },
+      "selected": "carry",
+      "test_mae_selected": 20.27,
+      "test_bias_selected": -20.19,
+      "test_mae_carry_baseline": 20.27,
+      "test_mae_all": {
+        "iterative": 22.36,
+        "carry": 20.27,
+        "model_then_carry": 22.3,
+        "history_change": 14.07,
+        "baseline": 20.27
+      },
+      "likely_range_min": [
+        5.0,
+        28.0
+      ],
+      "likely_range_test_coverage_pct": 73.8
+    },
+    {
+      "stops_ahead": "11-99",
+      "validation_comparisons": 1874,
+      "test_comparisons": 1228,
+      "validation_mae": {
+        "iterative": 22.27,
+        "carry": 16.45,
+        "model_then_carry": 17.53,
+        "history_change": 18.01,
+        "baseline": 16.45
+      },
+      "selected": "carry",
+      "test_mae_selected": 16.5,
+      "test_bias_selected": -13.92,
+      "test_mae_carry_baseline": 16.5,
+      "test_mae_all": {
+        "iterative": 33.51,
+        "carry": 16.5,
+        "model_then_carry": 17.95,
+        "history_change": 17.55,
+        "baseline": 16.5
+      },
+      "likely_range_min": [
+        -9.0,
+        31.0
+      ],
+      "likely_range_test_coverage_pct": 82.0
+    }
+  ],
+  "note": "carry = starting delay carried forward (baseline); model_then_carry = model for the next stop, then that estimate carried forward; iterative = model applied stop by stop; history_change = starting delay + median recorded change between the two stops for this train (past journeys only). Methods chosen on validation, reported on test. bias = mean(estimate - actual); negative means too optimistic."
+}

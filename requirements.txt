@@ -1,0 +1,31 @@
+# RailScan - tested with Python 3.11.9 on Windows 11 (CPU only).
+# Versions are the ones the models were trained and tested with.
+#
+# PyTorch (needed by EasyOCR) comes from the CPU-only index. Without this line,
+# Linux hosts such as Streamlit Community Cloud download the multi-GB CUDA build.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+streamlit==1.66.1
+tensorflow==2.21.0            # CPU build on Windows; no GPU needed for this dataset size
+numpy==2.4.6
+pandas==3.1.0
+scikit-learn==1.9.1           # delay models are pickled with this version; keep it pinned
+xgboost==3.2.0
+joblib==1.6.0
+opencv-python-headless==5.0.0.93
+pillow==13.0.0
+matplotlib==3.11.2
+seaborn==0.13.2
+pyarrow==26.0.0               # reads the signboard parquet files
+rapidfuzz==3.14.6             # fuzzy station matching
+indic-transliteration==2.3.82
+
+# OCR: EasyOCR (models, ~100 MB per script, download on first use to ~/.EasyOCR/model)
+easyocr==1.7.2
+torch==2.15.0+cpu
+torchvision==0.29.1+cpu
+
+# Accounts on an external PostgreSQL (only used when RAILSCAN_ACCOUNTS_DB_URL is set)
+psycopg[binary]==3.3.6
+
+pytest==9.2.0

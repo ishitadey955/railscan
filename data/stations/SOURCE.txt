@@ -1,0 +1,6 @@
+station_master.csv
+source : https://raw.githubusercontent.com/datameet/railways/master/stations.json
+licence: CC0 (DataMeet)
+built  : 2026-10-11
+rows   : 8965
+script : scripts/build_station_master.py

@@ -1,0 +1,167 @@
+{
+  "model_type": {
+    "regressor": "Linear Regression",
+    "classifier": "Logistic Regression"
+  },
+  "target": {
+    "regression": "next_station_arrival_delay_min",
+    "classification": "next_station_delayed_15",
+    "risk_label": "next_delay_risk_label"
+  },
+  "features": [
+    "seq",
+    "current_arrival_delay_min",
+    "current_departure_delay_min",
+    "scheduled_arrival_hour",
+    "scheduled_arrival_minute",
+    "scheduled_departure_hour",
+    "scheduled_departure_minute",
+    "scheduled_stop_min",
+    "scheduled_travel_to_next_min",
+    "distance_to_next_km",
+    "day_of_week",
+    "month",
+    "is_weekend",
+    "historical_avg_delay_min",
+    "historical_delay_std_min",
+    "historical_observation_count",
+    "historical_on_time_rate_pct",
+    "historical_avg_actual_stop_min",
+    "historical_stop_std_min",
+    "historical_stop_observation_count",
+    "historical_stop_reliability_pct",
+    "train_no",
+    "train_type",
+    "station_code",
+    "next_station_code"
+  ],
+  "training_date": "2026-10-28T20:01:17+00:00",
+  "train_rows": 1055,
+  "validation_rows": 223,
+  "test_rows": 222,
+  "dataset_date_ranges": {
+    "train": {
+      "min": "2023-11-05",
+      "max": "2025-10-26"
+    },
+    "validation": {
+      "min": "2025-11-13",
+      "max": "2026-03-20"
+    },
+    "test": {
+      "min": "2026-04-06",
+      "max": "2026-08-28"
+    }
+  },
+  "selection": {
+    "regression": "lowest validation MAE",
+    "classification": "highest validation macro-F1"
+  },
+  "imbalance_handling": {
+    "method": "class_weight='balanced' (LR, RF); scale_pos_weight (XGB)",
+    "scale_pos_weight": 0.6961414790996785,
+    "decision_threshold": 0.5,
+    "positive_rate": {
+      "train": 0.5895734597156398,
+      "validation": 0.6278026905829597,
+      "test": 0.5855855855855856
+    }
+  },
+  "metrics": {
+    "validation": {
+      "regression": {
+        "Linear Regression": {
+          "MAE": 3.1522442579784924,
+          "RMSE": 6.762915250596468,
+          "R2": 0.9060528796660167
+        },
+        "Random Forest": {
+          "MAE": 4.595090806646788,
+          "RMSE": 9.419363002714665,
+          "R2": 0.8177537291416729
+        },
+        "XGBoost": {
+          "MAE": 4.0808131787007165,
+          "RMSE": 9.230225567172843,
+          "R2": 0.8249991285945365
+        }
+      },
+      "classification": {
+        "Logistic Regression": {
+          "accuracy": 0.9013452914798207,
+          "precision": 0.9538461538461539,
+          "recall": 0.8857142857142857,
+          "f1": 0.9185185185185185,
+          "macro_f1": 0.8967592592592593,
+          "balanced_accuracy": 0.9067125645438898,
+          "roc_auc": 0.9755593803786575,
+          "tn": 77,
+          "fp": 6,
+          "fn": 16,
+          "tp": 124
+        },
+        "Random Forest": {
+          "accuracy": 0.852017937219731,
+          "precision": 0.9147286821705426,
+          "recall": 0.8428571428571429,
+          "f1": 0.8773234200743495,
+          "macro_f1": 0.845441371054124,
+          "balanced_accuracy": 0.8551635111876076,
+          "roc_auc": 0.943631669535284,
+          "tn": 72,
+          "fp": 11,
+          "fn": 22,
+          "tp": 118
+        },
+        "XGBoost": {
+          "accuracy": 0.8968609865470852,
+          "precision": 0.9398496240601504,
+          "recall": 0.8928571428571429,
+          "f1": 0.9157509157509157,
+          "macro_f1": 0.8914014694361515,
+          "balanced_accuracy": 0.8982358003442341,
+          "roc_auc": 0.9671256454388983,
+          "tn": 75,
+          "fp": 8,
+          "fn": 15,
+          "tp": 125
+        }
+      }
+    },
+    "test": {
+      "regression": {
+        "Linear Regression": {
+          "MAE": 3.454826539443001,
+          "RMSE": 7.806163719605505,
+          "R2": 0.926338662459631
+        }
+      },
+      "classification": {
+        "Logistic Regression": {
+          "accuracy": 0.9324324324324325,
+          "precision": 0.9752066115702479,
+          "recall": 0.9076923076923077,
+          "f1": 0.9402390438247012,
+          "macro_f1": 0.9312594182854076,
+          "balanced_accuracy": 0.9375418060200669,
+          "roc_auc": 0.982190635451505,
+          "tn": 89,
+          "fp": 3,
+          "fn": 12,
+          "tp": 118
+        }
+      }
+    }
+  },
+  "best_tree_models_for_importance": {
+    "regression": "XGBoost",
+    "classification": "XGBoost"
+  },
+  "library_versions": {
+    "scikit-learn": "1.9.1",
+    "xgboost": "3.2.0",
+    "pandas": "3.1.0",
+    "numpy": "2.4.6"
+  },
+  "seed": 42
+}

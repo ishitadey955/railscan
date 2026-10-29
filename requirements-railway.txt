@@ -1,0 +1,4 @@
+rapidfuzz>=3.0
+pandas>=2.0
+indic-transliteration>=2.3
+pytest

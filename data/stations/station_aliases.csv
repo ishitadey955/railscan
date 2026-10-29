@@ -1,0 +1,207 @@
+alias,station_code,language,source
+NEW DELHI,NDLS,en,curated_seed
+DELHI JUNCTION,DLI,en,curated_seed
+OLD DELHI,DLI,en,curated_seed
+NIZAMUDDIN,NZM,en,curated_seed
+HAZRAT NIZAMUDDIN,NZM,en,curated_seed
+HOWRAH JUNCTION,HWH,en,curated_seed
+HOWRAH,HWH,en,curated_seed
+SEALDAH,SDAH,en,curated_seed
+MUMBAI CENTRAL,BCT,en,curated_seed
+BOMBAY CENTRAL,BCT,en,curated_seed
+MUMBAI CST,CSTM,en,curated_seed
+MUMBAI CSMT,CSTM,en,curated_seed
+BOMBAY VT,CSTM,en,curated_seed
+VICTORIA TERMINUS,CSTM,en,curated_seed
+LOKMANYA TILAK TERMINUS,LTT,en,curated_seed
+DADAR,DR,en,curated_seed
+THANE,TNA,en,curated_seed
+KALYAN,KYN,en,curated_seed
+PUNE JUNCTION,PUNE,en,curated_seed
+PUNE,PUNE,en,curated_seed
+POONA,PUNE,en,curated_seed
+NAGPUR,NGP,en,curated_seed
+BENGALURU,SBC,en,curated_seed
+BANGALORE,SBC,en,curated_seed
+BANGALORE CITY,SBC,en,curated_seed
+KSR BENGALURU,SBC,en,curated_seed
+BENGALURU CITY,SBC,en,curated_seed
+YESVANTPUR,YPR,en,curated_seed
+YESHWANTPUR,YPR,en,curated_seed
+MYSURU,MYS,en,curated_seed
+MYSORE,MYS,en,curated_seed
+HUBBALLI,UBL,en,curated_seed
+HUBLI,UBL,en,curated_seed
+MANGALURU CENTRAL,MAQ,en,curated_seed
+MANGALORE CENTRAL,MAQ,en,curated_seed
+MANGALURU JUNCTION,MAJN,en,curated_seed
+CHENNAI CENTRAL,MAS,en,curated_seed
+MADRAS CENTRAL,MAS,en,curated_seed
+CHENNAI EGMORE,MS,en,curated_seed
+SECUNDERABAD,SC,en,curated_seed
+HYDERABAD,HYB,en,curated_seed
+HYDERABAD DECCAN,HYB,en,curated_seed
+NAMPALLY,HYB,en,curated_seed
+VIJAYAWADA,BZA,en,curated_seed
+VISAKHAPATNAM,VSKP,en,curated_seed
+VIZAG,VSKP,en,curated_seed
+TIRUPATI,TPTY,en,curated_seed
+TRIVANDRUM CENTRAL,TVC,en,curated_seed
+THIRUVANANTHAPURAM CENTRAL,TVC,en,curated_seed
+VARANASI,BSB,en,curated_seed
+BANARAS,BSB,en,curated_seed
+BENARES,BSB,en,curated_seed
+PATNA JUNCTION,PNBE,en,curated_seed
+PATNA,PNBE,en,curated_seed
+LUCKNOW,LKO,en,curated_seed
+KANPUR CENTRAL,CNB,en,curated_seed
+AGRA CANTT,AGC,en,curated_seed
+JAIPUR,JP,en,curated_seed
+AHMEDABAD,ADI,en,curated_seed
+VADODARA,BRC,en,curated_seed
+BARODA,BRC,en,curated_seed
+SURAT,ST,en,curated_seed
+BHOPAL,BPL,en,curated_seed
+CHANDIGARH,CDG,en,curated_seed
+AMRITSAR,ASR,en,curated_seed
+BHUBANESWAR,BBS,en,curated_seed
+GUWAHATI,GHY,en,curated_seed
+ERNAKULAM JUNCTION,ERS,en,curated_seed
+COIMBATORE,CBE,en,curated_seed
+MADURAI,MDU,en,curated_seed
+नई दिल्ली,NDLS,hi,curated_seed
+पुरानी दिल्ली,DLI,hi,curated_seed
+दिल्ली जंक्शन,DLI,hi,curated_seed
+हजरत निजामुद्दीन,NZM,hi,curated_seed
+निजामुद्दीन,NZM,hi,curated_seed
+हावड़ा,HWH,hi,curated_seed
+हावड़ा जंक्शन,HWH,hi,curated_seed
+सियालदह,SDAH,hi,curated_seed
+मुंबई सेंट्रल,BCT,hi,curated_seed
+मुम्बई सेंट्रल,BCT,hi,curated_seed
+छत्रपति शिवाजी महाराज टर्मिनस,CSTM,hi,curated_seed
+लोकमान्य तिलक टर्मिनस,LTT,hi,curated_seed
+दादर,DR,hi,curated_seed
+ठाणे,TNA,hi,curated_seed
+कल्याण,KYN,hi,curated_seed
+पुणे,PUNE,hi,curated_seed
+पुणे जंक्शन,PUNE,hi,curated_seed
+नागपुर,NGP,hi,curated_seed
+भोपाल,BPL,hi,curated_seed
+इंदौर,INDB,hi,curated_seed
+जबलपुर,JBP,hi,curated_seed
+ग्वालियर,GWL,hi,curated_seed
+आगरा कैंट,AGC,hi,curated_seed
+मथुरा,MTJ,hi,curated_seed
+झाँसी,JHS,hi,curated_seed
+झांसी,JHS,hi,curated_seed
+कानपुर सेंट्रल,CNB,hi,curated_seed
+लखनऊ,LKO,hi,curated_seed
+वाराणसी,BSB,hi,curated_seed
+इलाहाबाद जंक्शन,ALD,hi,curated_seed
+पटना जंक्शन,PNBE,hi,curated_seed
+पटना,PNBE,hi,curated_seed
+गया,GAYA,hi,curated_seed
+रांची,RNC,hi,curated_seed
+धनबाद,DHN,hi,curated_seed
+जयपुर,JP,hi,curated_seed
+जोधपुर,JU,hi,curated_seed
+अजमेर,AII,hi,curated_seed
+कोटा,KOTA,hi,curated_seed
+उदयपुर सिटी,UDZ,hi,curated_seed
+अहमदाबाद,ADI,hi,curated_seed
+वडोदरा,BRC,hi,curated_seed
+सूरत,ST,hi,curated_seed
+चंडीगढ़,CDG,hi,curated_seed
+अमृतसर,ASR,hi,curated_seed
+लुधियाना,LDH,hi,curated_seed
+देहरादून,DDN,hi,curated_seed
+हरिद्वार,HW,hi,curated_seed
+गोरखपुर,GKP,hi,curated_seed
+चेन्नई सेंट्रल,MAS,hi,curated_seed
+बेंगलुरु,SBC,hi,curated_seed
+बेंगलूरु,SBC,hi,curated_seed
+बेंगलुरु सिटी,SBC,hi,curated_seed
+सिकंदराबाद,SC,hi,curated_seed
+हैदराबाद,HYB,hi,curated_seed
+विजयवाड़ा,BZA,hi,curated_seed
+विशाखापत्तनम,VSKP,hi,curated_seed
+भुवनेश्वर,BBS,hi,curated_seed
+पुरी,PURI,hi,curated_seed
+कटक,CTC,hi,curated_seed
+गुवाहाटी,GHY,hi,curated_seed
+तिरुवनंतपुरम सेंट्रल,TVC,hi,curated_seed
+एर्नाकुलम जंक्शन,ERS,hi,curated_seed
+कोयंबटूर,CBE,hi,curated_seed
+पुणे,PUNE,mr,curated_seed
+पुणे जंक्शन,PUNE,mr,curated_seed
+मुंबई सेंट्रल,BCT,mr,curated_seed
+छत्रपती शिवाजी महाराज टर्मिनस,CSTM,mr,curated_seed
+लोकमान्य टिळक टर्मिनस,LTT,mr,curated_seed
+दादर,DR,mr,curated_seed
+ठाणे,TNA,mr,curated_seed
+कल्याण,KYN,mr,curated_seed
+नागपूर,NGP,mr,curated_seed
+नाशिक रोड,NK,mr,curated_seed
+औरंगाबाद,AWB,mr,curated_seed
+कोल्हापूर,KOP,mr,curated_seed
+सोलापूर,SUR,mr,curated_seed
+सातारा,STR,mr,curated_seed
+सांगली,SLI,mr,curated_seed
+मिरज,MRJ,mr,curated_seed
+नांदेड,NED,mr,curated_seed
+अकोला,AK,mr,curated_seed
+भुसावळ,BSL,mr,curated_seed
+मनमाड,MMR,mr,curated_seed
+जळगाव,JL,mr,curated_seed
+अमरावती,AMI,mr,curated_seed
+वर्धा,WR,mr,curated_seed
+ಬೆಂಗಳೂರು,SBC,kn,curated_seed
+ಬೆಂಗಳೂರು ಸಿಟಿ,SBC,kn,curated_seed
+ಯಶವಂತಪುರ,YPR,kn,curated_seed
+ಮೈಸೂರು,MYS,kn,curated_seed
+ಹುಬ್ಬಳ್ಳಿ,UBL,kn,curated_seed
+ಧಾರವಾಡ,DWR,kn,curated_seed
+ಬೆಳಗಾವಿ,BGM,kn,curated_seed
+ಮಂಗಳೂರು ಸೆಂಟ್ರಲ್,MAQ,kn,curated_seed
+ಮಂಗಳೂರು ಜಂಕ್ಷನ್,MAJN,kn,curated_seed
+ಬಳ್ಳಾರಿ,BAY,kn,curated_seed
+ಹಾಸನ,HAS,kn,curated_seed
+ತುಮಕೂರು,TK,kn,curated_seed
+ದಾವಣಗೆರೆ,DVG,kn,curated_seed
+ಶಿವಮೊಗ್ಗ,SMET,kn,curated_seed
+ವಿಜಯಪುರ,BJP,kn,curated_seed
+ಕಲಬುರಗಿ,GR,kn,curated_seed
+ರಾಯಚೂರು,RC,kn,curated_seed
+ಬೀದರ್,BIDR,kn,curated_seed
+ಮಂಡ್ಯ,MYA,kn,curated_seed
+ಕಾರವಾರ,KAWR,kn,curated_seed
+ಉಡುಪಿ,UD,kn,curated_seed
+ಬೆಂಗಳೂರು ಕಂಟೋನ್ಮೆಂಟ್,BNC,kn,curated_seed
+హైదరాబాద్,HYB,te,curated_seed
+సికింద్రాబాద్,SC,te,curated_seed
+కాచిగూడ,KCG,te,curated_seed
+విజయవాడ,BZA,te,curated_seed
+విశాఖపట్నం,VSKP,te,curated_seed
+తిరుపతి,TPTY,te,curated_seed
+గుంటూరు,GNT,te,curated_seed
+వరంగల్,WL,te,curated_seed
+ఖమ్మం,KMT,te,curated_seed
+రాజమండ్రి,RJY,te,curated_seed
+నెల్లూరు,NLR,te,curated_seed
+కర్నూలు,KRNT,te,curated_seed
+కడప,HX,te,curated_seed
+అనంతపురం,ATP,te,curated_seed
+నిజామాబాద్,NZB,te,curated_seed
+కాజీపేట,KZJ,te,curated_seed
+ఒంగోలు,OGL,te,curated_seed
+తెనాలి,TEL,te,curated_seed
+ఏలూరు,EE,te,curated_seed
+విజయనగరం,VZM,te,curated_seed
+శ్రీకాకుళం రోడ్,CHE,te,curated_seed
+తాడేపల్లిగూడెం,TDD,te,curated_seed
+భీమవరం,BVRM,te,curated_seed
+CHHATRAPATI SHIVAJI MAHARAJ TERMINUS,CSTM,en,curated_seed
+CHHATRAPATI SHIVAJI TERMINUS,CSTM,en,curated_seed
+CSMT,CSTM,en,curated_seed
+CST,CSTM,en,curated_seed
