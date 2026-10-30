@@ -32,3 +32,12 @@ CPU (seen on 30 Oct 2026). Batch changes into one push.
 6. Check: scan a sign; the Text section shows "Engine: Google Cloud Vision". Logs show
    `google_ocr_failed` with the reason if the key or API setup is wrong (the app then uses EasyOCR).
 7. Measure it (on your PC, with the key in the environment): `python scripts/evaluate_google_ocr.py`.
+
+## Gemini OCR (optional, no billing)
+1. https://aistudio.google.com -> sign in -> **Get API key** -> **Create API key** (in a new or existing project).
+   Copy it; never paste it in chats, code or GitHub.
+2. Streamlit: Manage app -> Settings -> Secrets: add `GEMINI_API_KEY = "<the key>"`, save, reboot.
+3. Check: scan a sign; the Text section shows "Engine: Gemini (...)". If not, the blue note above the text
+   says why (e.g. "HTTP 404 ... model": set `GEMINI_OCR_MODEL` to a current model name from
+   https://ai.google.dev/gemini-api/docs/models; "HTTP 429": free-tier limit, try again later).
+4. Measure it (on your PC, key in the environment): `python scripts/evaluate_google_ocr.py --engine gemini --pause 4`.

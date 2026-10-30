@@ -8,7 +8,7 @@ personal accounts and a private history. Coverage: northern India and West Benga
 ## Stack (do not change without asking)
 - App: Python 3.11 + Streamlit (one process: UI and logic), entry point `app.py`
 - Models: Keras CNN on the PyTorch backend (no TensorFlow at runtime), EasyOCR, scikit-learn RF + XGBoost
-- OCR: Google Cloud Vision when `GOOGLE_VISION_API_KEY` is set (docs/decisions/0007), EasyOCR otherwise
+- OCR: Google Cloud Vision (`GOOGLE_VISION_API_KEY`, 0007), else Gemini (`GEMINI_API_KEY`, 0008), else EasyOCR
 - Railway data: committed Parquet/CSV files; SQLite (`data/database/railscan.db`) where fully built,
   otherwise one train at a time from Parquet (`src/database/on_demand.py`)
 - Accounts and history: PostgreSQL (Supabase) via `RAILSCAN_ACCOUNTS_DB_URL`, else the local SQLite file

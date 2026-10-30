@@ -85,8 +85,9 @@ PRIVACY = ("- **Account:** username, optional display name, a salted scrypt hash
            "again. Uploaded photos are **never** stored.\n"
            "- **Security records:** log-in attempts (kept 30 days, to block password guessing) and usage "
            "counts (kept up to 30 days, to limit scans, sign-ups and Google OCR use).\n"
-           "- **Text reading:** when Google OCR is switched on, the photo you scan is sent to Google Cloud "
-           "Vision to read its text (Google's terms apply); RailScan itself still never stores it.\n"
+           "- **Text reading:** when Google OCR is switched on, the photo you scan is sent to Google (Cloud "
+           "Vision, or the Gemini API) to read its text. On the free Gemini tier Google states that it uses "
+           "this content to improve its products. RailScan itself still never stores the photo.\n"
            "- **Your control:** download everything with *Download my data*; deleting your account deletes "
            "its history too.")
 
@@ -95,7 +96,7 @@ st.set_page_config(page_title="RailScan", layout="wide")
 # Hosted deployments keep the accounts database address in Streamlit secrets
 # (Settings -> Secrets: RAILSCAN_ACCOUNTS_DB_URL = "postgresql://..."); locally it may be an environment variable.
 try:
-    for _name in ("RAILSCAN_ACCOUNTS_DB_URL", "GOOGLE_VISION_API_KEY"):
+    for _name in ("RAILSCAN_ACCOUNTS_DB_URL", "GOOGLE_VISION_API_KEY", "GEMINI_API_KEY", "GEMINI_OCR_MODEL"):
         if _name in st.secrets:
             os.environ.setdefault(_name, str(st.secrets[_name]))
 except Exception:  # no secrets file: local SQLite accounts
@@ -640,34 +641,48 @@ def record_scan(name: str, scan: dict) -> None:
             "train_numbers": scan["numbers"], "platforms": scan["platforms"]})
 
 
-def google_reading(data: bytes):
-    """(Google Cloud Vision's reading or None, a note on why Google was not used). Without a key, past
-    the monthly cap, or on any failure the scan shows EasyOCR's reading, so it never fails because of
-    Google; the note says why on the page (the reason never contains the key)."""
-    from src.ocr import google_vision
-    if not google_vision.available():
-        return None, ("Google OCR is off: no GOOGLE_VISION_API_KEY in the app's Secrets "
-                      "(Manage app -> Settings -> Secrets, then reboot).")
-    try:
-        accounts.take_quota("app", "google_ocr")           # free tier: 1,000 photos a month
-    except AccountError:
-        LOG.warning("Google OCR monthly cap reached; EasyOCR used", extra={"event": "google_ocr_cap"})
-        return None, "Google OCR's monthly limit (1,000 photos) is reached; EasyOCR read this photo."
-    try:
-        result = google_vision.recognize(data)
-    except google_vision.GoogleOCRError as exc:
-        LOG.warning("Google OCR failed; EasyOCR used", extra={"event": "google_ocr_failed", "reason": str(exc)})
-        return None, f"Google OCR failed ({exc}); EasyOCR read this photo."
-    if result["status"] != "ok":
-        return None, "Google OCR found no text in this photo; EasyOCR's reading is shown."
-    return result, None
+def cloud_reading(data: bytes):
+    """(the photo's text read by Google, or None; a note on why EasyOCR's reading is shown instead).
+
+    Order: Google Cloud Vision (GOOGLE_VISION_API_KEY, needs Cloud billing), then Gemini (GEMINI_API_KEY,
+    free AI Studio key), then EasyOCR. Any failure falls through to the next, so a scan never fails
+    because of Google; the note says why on the page (it never contains a key)."""
+    from src.ocr import gemini_ocr, google_vision
+    notes = []
+    if google_vision.available():
+        try:
+            accounts.take_quota("app", "google_ocr")       # free tier: 1,000 photos a month
+            result = google_vision.recognize(data)
+            if result["status"] == "ok":
+                return result, None
+            notes.append("Google Cloud Vision found no text")
+        except AccountError:
+            LOG.warning("Google OCR monthly cap reached", extra={"event": "google_ocr_cap"})
+            notes.append("Google Cloud Vision's monthly limit (1,000 photos) is reached")
+        except google_vision.GoogleOCRError as exc:
+            LOG.warning("Google OCR failed", extra={"event": "google_ocr_failed", "reason": str(exc)})
+            notes.append(f"Google Cloud Vision failed ({exc})")
+    if gemini_ocr.available():
+        try:
+            result = gemini_ocr.recognize(data)
+            if result["status"] == "ok":
+                return result, None
+            notes.append("Gemini found no readable text")
+        except gemini_ocr.GeminiOCRError as exc:
+            LOG.warning("Gemini OCR failed", extra={"event": "gemini_ocr_failed", "reason": str(exc)})
+            notes.append(f"Gemini failed ({exc})")
+    if not notes:
+        return None, ("Google OCR is off: no GEMINI_API_KEY (or GOOGLE_VISION_API_KEY) in the app's Secrets "
+                      "(Manage app -> Settings -> Secrets, then reboot). EasyOCR read this photo.")
+    return None, "; ".join(notes) + ". EasyOCR read this photo."
 
 
 def read_as(ocr: dict) -> str:
     """'Devanagari + English' for an EasyOCR reading, 'Google (hi, en)' for a Google one."""
-    if ocr.get("ocr_backend") == "google":
+    if ocr.get("ocr_backend") in ("google", "gemini"):
         langs = ocr.get("detected_languages") or []
-        return "Google" + (f" ({', '.join(langs)})" if langs else "")
+        name = "Google" if ocr["ocr_backend"] == "google" else "Gemini"
+        return name + (f" ({', '.join(langs)})" if langs else "")
     return LANG_NAMES.get(ocr.get("ocr_language") or "", ocr.get("ocr_language") or "")
 
 
@@ -681,7 +696,7 @@ def run_scan(data: bytes) -> dict:
               "class_probabilities": c["probabilities"], "low_confidence": c["low_confidence"],
               "cnn_probabilities": res["cnn"]["class_probabilities"]}
     others = other_readings(res)
-    google, google_note = google_reading(data)
+    google, google_note = cloud_reading(data)
     if google is not None:      # Google read the text: show it; EasyOCR's reading still helps the station match
         others = [res["ocr"].get("clean_text") or ""] + others
     ocr = google or res["ocr"]
@@ -690,6 +705,10 @@ def run_scan(data: bytes) -> dict:
     # every reading counts, also when the chosen one is poor: a station seen only in another script's
     # reading or in a faint reading is suggested for the user to confirm (never accepted automatically)
     station = get_matcher().match_readings(ocr, others)
+    if ocr.get("ocr_backend") == "gemini" and station.get("accepted"):
+        # a language model can "read" the name it expects; the user confirms instead of auto-accepting
+        station.update(status="possible", accepted=False, needs_confirmation=True, confidence_level="possible",
+                       message="Read by Gemini: please confirm the station.")
     st.session_state.scan_counter = st.session_state.get("scan_counter", 0) + 1
     return {"script": script, "ocr": ocr, "numbers": numbers, "station": station, "google_note": google_note,
             "platforms": platform_numbers(text), "quality": measure(load_rgb(data)),
@@ -738,7 +757,8 @@ def show_scan(scan: dict) -> None:
         c1, c2, c3 = st.columns(3)
         c1.metric("OCR confidence", "-" if ocr.get("ocr_confidence") is None else f"{ocr['ocr_confidence']:.0f} / 100")
         c2.metric("Read as", read_as(ocr))
-        c3.metric("Engine", "Google Cloud Vision" if ocr.get("ocr_backend") == "google" else "EasyOCR")
+        engine = {"google": "Google Cloud Vision", "gemini": f"Gemini ({ocr.get('ocr_model', '')})"}
+        c3.metric("Engine", engine.get(ocr.get("ocr_backend"), "EasyOCR"))
         st.markdown("**Recognised text (cleaned)**")
         st.code(ocr["clean_text"], language=None, wrap_lines=True)
         with st.expander("Raw OCR output and attempts"):
