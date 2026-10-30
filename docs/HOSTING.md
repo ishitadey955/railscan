@@ -4,7 +4,7 @@
 
 | Data | Where it lives | Why |
 |---|---|---|
-| Railway data: 924,706 observations (northern India and West Bengal), stations, timetable of 5,300 trains | SQLite (`data/database/railscan.db`, about 590 MB) | Read-only. It is rebuilt automatically from the committed `data/processed/RailScan_Final_Dataset.parquet` (45 MB) and the timetable CSV the first time the app starts on a new server. That takes about **4–5 minutes**; the page shows "Preparing the railway database" meanwhile. |
+| Railway data: 924,706 observations (northern India and West Bengal), stations, timetable of 5,300 trains | SQLite (`data/database/railscan.db`, about 590 MB) | Read-only. It is rebuilt automatically from the committed `data/processed/RailScan_Final_Dataset.parquet` (45 MB) and the timetable CSV the first time the app starts on a new server. That takes about **4–5 minutes** in the background; sign-up, log-in and scanning work meanwhile (they read the same stations, timetable and train numbers from the committed files). Only the journey planner, the recorded-journey check and the Data page wait for it. |
 | Accounts and history: `users`, `user_history`, `login_attempts` | **External PostgreSQL** when `RAILSCAN_ACCOUNTS_DB_URL` is set; otherwise the same SQLite file | Must survive restarts. Most hosts (including Streamlit Community Cloud) wipe local files when the app restarts, so accounts kept in SQLite there would be lost. |
 
 The account code (`src/database/users.py` via `accounts_store.py`) runs unchanged on SQLite and PostgreSQL. `tests/test_users.py` runs every account test on both.
@@ -75,7 +75,7 @@ git push -u origin main
    RAILSCAN_ACCOUNTS_DB_URL = "postgresql://...your connection string..."
    ```
 4. Choose **Deploy**. The first build installs `requirements.txt`, which takes a few minutes because of PyTorch.
-5. On the first visit, the app builds the railway tables from the Parquet file ("Preparing the railway database", about 4–5 minutes). Keep the tab open; later visits are immediate until the app restarts. The first scan of each script downloads EasyOCR's models.
+5. The first page anyone opens after a (re)start starts two background jobs: loading the scanner models (downloaded once per server, ready after about half a minute) and building the railway tables from the Parquet file (about 4–5 minutes). Sign-up, log-in and the Scan page open at once; the journey planner and the Data page wait for the tables.
 
 Check the memory limit of the free tier in Streamlit's current documentation against the measured peak of about 1.8 GB. If the app restarts during a scan, use a host with more memory (step 4b). Everything except scanning, including log-in, the planner and history, uses much less memory.
 

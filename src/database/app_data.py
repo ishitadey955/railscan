@@ -101,6 +101,17 @@ def train_list_db(db_path: Optional[PathLike] = None) -> pd.DataFrame:
     return df
 
 
+def train_list_parquet(path: Optional[PathLike] = None) -> pd.DataFrame:
+    """train_list_db() from the committed Parquet copy of the dataset (the file the database is
+    built from), for use while the database is not built yet. Same result, under a second."""
+    import pyarrow.parquet as pq
+    from .import_data import DEFAULT_PARQUET
+    d = pq.read_table(path or DEFAULT_PARQUET, columns=["train_no", "train_name", "journey_date"]).to_pandas()
+    d["train_no"] = d["train_no"].astype(str).str.zfill(5)
+    return (d.groupby("train_no").agg(train_name=("train_name", "max"), journeys=("journey_date", "nunique"),
+                                      rows=("train_no", "size")).reset_index())
+
+
 def overview_db(db_path: Optional[PathLike] = None) -> dict:
     """Dataset-wide figures for the Data page, computed in SQL (no full load)."""
     def compute(conn):

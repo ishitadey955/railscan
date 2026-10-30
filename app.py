@@ -56,8 +56,8 @@ for _attempt in (1, 2):
         from src.position import estimate_from_forecast, estimate_from_typical, map_points
         from src.timetable import (TimetableUnavailable, departure_stations, load_timetable, route, runs_on,
                                    schedule_on)
-        from src.railscan_service import (DataUnavailable, analyze, as_time, dataset_overview, journey,
-                                          journey_dates, list_trains, load_master, missing_summary,
+        from src.railscan_service import (analyze, as_time, dataset_overview, journey,
+                                          journey_dates, load_master, missing_summary,
                                           platform_numbers, station_choices, summarize_ocr_numbers)
         break
     except (ImportError, KeyError):
@@ -99,14 +99,12 @@ st.markdown("""
 
 
 # ---------------------------------------------------------------- cached resources
-@st.cache_resource(show_spinner="Preparing the railway database (first start only, a few minutes) ...")
-def ensure_railway_db() -> str:
+def _build_railway_db() -> str:
     """Build the SQLite railway tables when they are missing (a fresh server builds them from the
-    committed Parquet file, ~4-5 minutes).
+    committed Parquet file, ~4-5 minutes). Raises with the reason when that fails.
 
     Tried in the project folder first, then in the system temp folder (some hosts do not allow
-    writing next to the code). A failure is raised, not cached, so the next page load retries and
-    the page shows the real reason.
+    writing next to the code).
     """
     import tempfile
     from src.database import import_dataset, import_stations, initialize_database
@@ -134,24 +132,84 @@ def ensure_railway_db() -> str:
     raise RuntimeError("The railway database could not be built. " + " | ".join(errors))
 
 
+@st.cache_resource(show_spinner=False)
+def railway_db() -> dict:
+    """Build (or just find) the railway database in a background thread, once per server process,
+    starting with the first page anyone opens.
+
+    Only the journey planner, the recorded-journey check and the Data page need it; the scan
+    page reads the same stations, timetable and train numbers from the committed files, so it
+    never waits. The build starts after the scanner models are loaded and runs at low CPU
+    priority, so it does not slow down pages or scans. Status: {"done", "error", "thread"}.
+    """
+    import threading
+    import time
+    status = {"done": False, "error": None}
+
+    def run():
+        try:
+            from src.database.app_data import data_ready
+            if not data_ready():                  # already built: done at once
+                scanner = warm_up_scanner() if cnn_status()[0] else {"done": True}
+                for _ in range(300):              # let the scanner load first (normally ~20-40 s)
+                    if scanner["done"]:
+                        break
+                    time.sleep(1)
+                try:                              # Linux: lower this thread's CPU priority
+                    os.setpriority(os.PRIO_PROCESS, threading.get_native_id(), 15)
+                except (AttributeError, OSError):
+                    pass
+            _build_railway_db()
+        except Exception as exc:
+            status["error"] = f"{type(exc).__name__}: {exc}"
+        finally:
+            status["done"] = True
+
+    status["thread"] = threading.Thread(target=run, name="railscan-database", daemon=True)
+    status["thread"].start()
+    return status
+
+
+def railway_db_ready() -> bool:
+    s_ = railway_db()
+    return s_["done"] and not s_["error"]
+
+
+def wait_for_railway_db() -> None:
+    """For pages that need the recorded journeys: wait for the build, or show why it failed."""
+    s_ = railway_db()
+    if not s_["done"]:
+        with st.spinner("Preparing the journey data after a server restart (once, a few minutes). "
+                        "Scanning works meanwhile."):
+            s_["thread"].join()
+    if s_["error"]:
+        st.error(s_["error"])
+        if st.button("Try again"):
+            railway_db.clear()
+            st.rerun()
+        st.caption("If it keeps failing, send this message (it names the cause).")
+        st.stop()
+
+
 @st.cache_data(show_spinner=False, max_entries=16)
 def train_data(train_no: str) -> pd.DataFrame:
     """One train's observations (the whole table is too large to keep in memory)."""
-    ensure_railway_db()
     return load_master(train_no=train_no)
 
 
 @st.cache_data(show_spinner=False)
 def get_trains() -> pd.DataFrame:
-    """train_no, train_name, journeys, rows for every train in the dataset."""
-    ensure_railway_db()
-    from src.database.app_data import data_ready, train_list_db
-    return train_list_db() if data_ready() else list_trains(load_master())
+    """train_no, train_name, journeys, rows for every train in the dataset.
+
+    While the database is still being built, read from the committed Parquet copy of the
+    same dataset (identical result, under a second), so a scan never waits for the build.
+    """
+    from src.database.app_data import data_ready, train_list_db, train_list_parquet
+    return train_list_db() if railway_db_ready() and data_ready() else train_list_parquet()
 
 
 @st.cache_data(show_spinner="Summarising the dataset ...")
 def get_overview() -> dict:
-    ensure_railway_db()
     from src.database.app_data import data_ready, overview_db
     if data_ready():
         return {**overview_db(), "source": "SQLite"}
@@ -255,7 +313,8 @@ def get_ocr():
 @st.cache_resource(show_spinner="Loading station list...")
 def get_matcher():
     from src.railway import StationMaster, StationMatcher
-    return StationMatcher(StationMaster.load())
+    # the station CSVs hold the same stations as the database (which is built from them)
+    return StationMatcher(StationMaster.load(prefer_database=railway_db_ready()))
 
 
 @st.cache_data(show_spinner=False)
@@ -384,6 +443,7 @@ def page_auth() -> None:
 # the time that person has logged in or created an account
 if cnn_status()[0]:
     warm_up_scanner()
+railway_db()
 
 if current_user() is None:
     page_auth()
@@ -399,15 +459,6 @@ with st.sidebar:
     st.button("Log out", on_click=log_out)
     st.divider()
     st.caption(NOTICE)
-
-# Only the railway database is checked here (instant once built). The train list and the
-# delay models (~170 MB) load on the pages that use them, so the scan page never waits for them.
-try:
-    ensure_railway_db()
-except (DataUnavailable, RuntimeError) as exc:
-    st.error(str(exc))
-    st.caption("Reload the page to retry. If it keeps failing, send this message (it names the cause).")
-    st.stop()
 
 st.title("RailScan")
 st.markdown("CNN-Based Indian Railway Sign Recognition and Delay Prediction")
@@ -596,7 +647,7 @@ def show_scan(scan: dict) -> None:
         return
     from src.database.repository import get_station_by_code
     try:
-        details = get_station_by_code(chosen["station_code"])
+        details = get_station_by_code(chosen["station_code"]) if railway_db_ready() else None
     except Exception:
         details = None
     name = (details or {}).get("station_name") or chosen["station_name"]
@@ -671,6 +722,7 @@ def clock(ts, journey_date) -> str:
 
 
 def page_planner() -> None:
+    wait_for_railway_db()
     st.markdown("Pick a train, a travel date (today, a future date or a past one) and the station the train is "
                 "at or leaving. If you know how late it is, RailScan estimates the delay at the next stop and "
                 "along the rest of the route. Otherwise it shows how late this train usually was.")
@@ -988,6 +1040,7 @@ def show_typical(t: pd.DataFrame, jd) -> None:
 
 # ================================================================= RECORDED-JOURNEY CHECK
 def page_replay() -> None:
+    wait_for_railway_db()
     st.markdown("Pick a journey that was actually recorded and a stop on it. RailScan predicts the next stop as "
                 "if it were that moment, and shows what really happened.")
     trains = get_trains()
@@ -1133,6 +1186,7 @@ def show_analysis(res: dict, j: pd.DataFrame) -> None:
 
 # ================================================================= DATA
 def page_data() -> None:
+    wait_for_railway_db()
     info = get_overview()
     ov = info["overview"]
     section("Railway dataset", "recorded")
