@@ -53,7 +53,8 @@ def retake_advice(m: Dict[str, float], ocr: Dict, station: Optional[Dict]) -> Di
     reasons = photo_issues(m)
     if ocr.get("status") != "ok":
         reasons.append("No text could be read from this photo.")
-    elif (ocr.get("ocr_confidence") or 0) <= LOW_OCR_CONFIDENCE:
+    elif ocr.get("ocr_confidence") is not None and ocr["ocr_confidence"] <= LOW_OCR_CONFIDENCE:
+        # engines without a confidence score (Gemini) get no low-confidence remark
         reasons.append(f"The text was read with low confidence ({ocr['ocr_confidence']:.0f}/100).")
     if ocr.get("status") == "ok" and (not station or station.get("status") in ("not_identified", "no_text")):
         reasons.append("No station name could be matched to the text.")

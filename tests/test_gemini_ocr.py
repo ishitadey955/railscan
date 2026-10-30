@@ -79,3 +79,12 @@ def test_model_can_be_changed_by_setting(monkeypatch):
     assert gm.model_name() == "gemini-other"
     monkeypatch.delenv(gm.ENV_MODEL)
     assert gm.model_name() == gm.DEFAULT_MODEL
+
+
+def test_photo_check_handles_a_reading_without_confidence():
+    """Streamlit Cloud, 30 Oct 2026: the photo check crashed formatting Gemini's missing confidence."""
+    from src.image.quality import retake_advice
+    reading = gm.parse(_answer({"lines": ["रत्नागिरी", "RATNAGIRI"]}))
+    quality = {"width": 507, "height": 394, "brightness": 61, "contrast": 62, "sharpness": 853}
+    adv = retake_advice(quality, reading, {"status": "possible"})
+    assert not any("confidence" in r for r in adv["reasons"])
