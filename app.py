@@ -76,20 +76,34 @@ st.markdown("""
 # ---------------------------------------------------------------- cached resources
 @st.cache_resource(show_spinner="Preparing the railway database (first start only, a few minutes) ...")
 def ensure_railway_db() -> str:
-    """Build the SQLite railway tables from the committed CSVs when they are missing (e.g. a fresh server)."""
+    """Build the SQLite railway tables when they are missing (a fresh server builds them from the
+    committed Parquet file, ~4-5 minutes).
+
+    Tried in the project folder first, then in the system temp folder (some hosts do not allow
+    writing next to the code). A failure is raised, not cached, so the next page load retries and
+    the page shows the real reason.
+    """
+    import tempfile
     from src.database import import_dataset, import_stations, initialize_database
     from src.database.app_data import data_ready
     from src.database.import_data import import_timetable
-    if data_ready():
-        return "ready"
-    try:
-        initialize_database()
-        for rep in (import_stations(), import_dataset(replace=True), import_timetable()):
-            if rep.status != "success":
-                return f"not built ({rep.target_table}: {rep.error})"
-        return "built"
-    except Exception as exc:  # the app still works from the CSV files
-        return f"not built ({type(exc).__name__}: {exc})"
+    errors = []
+    for target in (None, Path(tempfile.gettempdir()) / "railscan" / "railscan.db"):
+        if target is not None:
+            os.environ["RAILSCAN_DB_PATH"] = str(target)
+        if data_ready():
+            return "ready"
+        try:
+            initialize_database()
+            failed = [f"{r.target_table}: {r.error}" for r in (import_stations(), import_dataset(replace=True),
+                                                                 import_timetable()) if r.status != "success"]
+            if not failed and data_ready():
+                return "built"
+            errors.append(f"{target or 'project folder'}: " + "; ".join(failed or ["tables still empty"]))
+        except Exception as exc:
+            errors.append(f"{target or 'project folder'}: {type(exc).__name__}: {exc}")
+    os.environ.pop("RAILSCAN_DB_PATH", None)
+    raise RuntimeError("The railway database could not be built. " + " | ".join(errors))
 
 
 @st.cache_data(show_spinner=False, max_entries=16)
@@ -308,8 +322,9 @@ with st.sidebar:
 
 try:
     TRAINS = get_trains()
-except DataUnavailable as exc:
+except (DataUnavailable, RuntimeError) as exc:
     st.error(str(exc))
+    st.caption("Reload the page to retry. If it keeps failing, send this message (it names the cause).")
     st.stop()
 PREDICTOR, PREDICTOR_ERROR = get_predictor()
 
