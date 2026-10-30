@@ -32,12 +32,32 @@ def memory_limit_mb() -> Optional[float]:
     return None
 
 
+def _stat(path: Path, key: str) -> int:
+    """One counter from a cgroup memory.stat file (0 when missing)."""
+    try:
+        for line in path.read_text().splitlines():
+            name, _, value = line.partition(" ")
+            if name == key and value.strip().isdigit():
+                return int(value)
+    except OSError:
+        pass
+    return 0
+
+
 def memory_used_mb() -> Optional[float]:
-    """Memory the container uses now (what the limit is checked against), else this process's RSS."""
-    for path in (_V2 / "memory.current", _V1 / "memory.usage_in_bytes"):
-        value = _read_int(path)
+    """Memory the container really needs: its usage minus the file cache, else this process's RSS.
+
+    The cgroup's raw usage also counts the file cache: model files, the dataset and the packages
+    installed at start-up (~2.5 GB on Streamlit Cloud, seen as "used_mb": 2919 of a 3072 MB limit
+    before any model was loaded). The kernel drops that cache (active or inactive) whenever
+    programs need the room, so it never gets an app stopped; counting it refused every scan.
+    """
+    for usage, stat, prefix in ((_V2 / "memory.current", _V2 / "memory.stat", ""),
+                                (_V1 / "memory.usage_in_bytes", _V1 / "memory.stat", "total_")):
+        value = _read_int(usage)
         if value is not None:
-            return value / MB
+            cache = _stat(stat, prefix + "active_file") + _stat(stat, prefix + "inactive_file")
+            return max(value - cache, 0) / MB
     try:
         for line in Path("/proc/self/status").read_text().splitlines():
             if line.startswith("VmRSS:"):
