@@ -36,7 +36,8 @@ and the position the train should have, from recorded journeys and a delay the u
 - **Pages:** open in about 2 s or less after the first page view of a server start, with no page waiting
   for a database build. Measured: login to the Scan page 0.7 s, planner estimate 1.8 s.
 - **Scans:** about 20 s on the host's CPU for a phone photo. The OCR runs once per script as validated;
-  the faster single-reading variant was measured and rejected (79.2% vs 75.6% test accuracy).
+  the faster single-reading variant was measured and rejected (79.2% vs 75.6% test accuracy, before
+  faint readings counted; script accuracy is now 86.3%).
 - **Memory:** about 1.5 GB at peak during a scan, which must fit the host.
 - **Privacy:** passwords are only ever stored hashed; logs are redacted; users can export and delete
   their data.

@@ -1,6 +1,6 @@
 """Combine the CNN's script probabilities with OCR evidence.
 
-The CNN looks at the whole photo and is right about 59% of the time on the
+The CNN looks at the whole photo and is right about 49% of the time on the
 held-out signboards. OCR adds independent evidence: EasyOCR reads with one
 recogniser per script, and a correct reading of real text usually has a much
 higher confidence than forcing, say, Kannada characters out of Devanagari text.
@@ -8,11 +8,12 @@ higher confidence than forcing, say, Kannada characters out of Devanagari text.
     evidence_s = (OCR confidence with script s / 100) x (share of letters in s's Unicode block)
     combined_s = softmax( log P_cnn(s) + ocr_weight x evidence_s )
 
+A reading the OCR rejected as noise still counts through its best attempt (reading_evidence).
 ``ocr_weight`` was chosen on the validation images and the resulting accuracy
-is reported on the test images (scripts/evaluate_script_fusion.py):
-test accuracy 58.6% (CNN alone) -> 82.8% (combined). The combined confidence is
+is reported on the test images (scripts/evaluate_script_fusion.py, reports/script_fusion_evaluation.json):
+test accuracy 49.2% (CNN alone) -> 86.3% (combined). The combined confidence is
 a heuristic score, not a calibrated probability; with the threshold chosen on
-validation (0.7), 83% of test images were "confident" and 92.6% of those were right.
+validation (0.9), 80% of test images were "confident" and 94.3% of those were right.
 """
 from __future__ import annotations
 
@@ -90,6 +91,25 @@ def fuse(cnn_probs: Mapping[str, float], ocr: Optional[Mapping[str, Mapping[str,
             "used_ocr": bool(ocr), "low_confidence": probs[best] < validated_threshold(), "ocr_weight": w}
 
 
+def reading_evidence(reading: Mapping, script: str) -> Dict[str, float]:
+    """OCR evidence for ``script`` from one reading: {"confidence", "native_share"}.
+
+    A reading the OCR rejected as noise (best attempt below its confidence cutoff of 30) still
+    counts through its best attempt, in proportion to that attempt's confidence. Before, it counted
+    as 0, so a reading at 30.4 counted fully and one at 29.9 not at all; tiny numeric differences
+    between machines then flipped the decision (Devanagari on one computer, Kannada on the server).
+    Measured on the held-out images (scripts/evaluate_script_fusion.py): test accuracy 79.2% -> 86.3%.
+    """
+    if reading.get("status") == "ok":
+        return {"confidence": float(reading.get("ocr_confidence") or 0.0),
+                "native_share": native_share(reading.get("clean_text") or "", script)}
+    tried = [a for a in reading.get("attempts") or [] if a.get("ocr_confidence") is not None and a.get("text")]
+    best = max(tried, key=lambda a: a["ocr_confidence"], default=None)
+    if best is None:
+        return {"confidence": 0.0, "native_share": 0.0}
+    return {"confidence": float(best["ocr_confidence"]), "native_share": native_share(best["text"], script)}
+
+
 def identify_script(image, predict, engine) -> Dict:
     """The evaluated procedure: CNN probabilities + an OCR reading with EACH script, combined.
 
@@ -106,9 +126,7 @@ def identify_script(image, predict, engine) -> Dict:
         except TypeError:  # an engine without that option
             r = engine.recognize(image, languages=language_candidates(s)[0])
         readings[s] = r
-        ok = r["status"] == "ok"
-        evidence[s] = {"confidence": r["ocr_confidence"] if ok else 0.0,
-                       "native_share": native_share(r["clean_text"], s) if ok else 0.0}
+        evidence[s] = reading_evidence(r, s)
     combined = fuse(cnn["class_probabilities"], evidence)
     chosen = readings[combined["script"]]
     chosen = {**chosen, "script": combined["script"], "script_confidence": combined["confidence"],

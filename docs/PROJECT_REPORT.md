@@ -68,9 +68,11 @@ Experiments, with the final model selected on **validation** accuracy:
 **Finding 2: the problem is locating the text, not similar scripts.** In the 4-language experiment, Hindi↔Marathi confusions were rare (8 of 145). The main errors came from the script occupying only a small part of a cluttered scene photo.
 
 **Finding 3: OCR evidence fixes most of the CNN's mistakes.** The app reads the sign with each script's OCR recogniser and combines the image model's probabilities with the OCR evidence: OCR confidence × share of letters in that script's Unicode block. The weight and the "confident" threshold were chosen on validation images only.
-- On the test images, accuracy rose from **58.6% to 82.8%**.
-- 83% of test images were marked confident, and **92.6%** of those were right.
-- The cost is three OCR passes, about 20–30 s per photo on CPU.
+- On the test images (four scripts), accuracy rose from **49.2% to 86.3%**.
+- 80% of test images were marked confident, and **94.3%** of those were right.
+- A reading the OCR rejects as noise still counts through its best attempt. Counting it as 0 gave 79.2% and let
+  tiny numeric differences between computers flip the decision (one reading at 30.4 counted, at 29.9 it did not).
+- The cost is four OCR passes, about 20–30 s per photo on CPU.
 
 ### 3.2 OCR and matching
 - **Engine:** EasyOCR (CPU).

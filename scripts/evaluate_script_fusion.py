@@ -42,7 +42,7 @@ def collect(limit: int, reuse: Path | None = None) -> pd.DataFrame:
     """
     from src.image.prediction import predict_script
     from src.ocr import OCREngine, language_candidates
-    from src.script_evidence import native_share
+    from src.script_evidence import reading_evidence
 
     meta = pd.read_csv(ROOT / "data" / "processed" / "RailScan_CNN_Metadata.csv")
     meta = meta[meta.split.isin(["validation", "test"])]
@@ -69,9 +69,8 @@ def collect(limit: int, reuse: Path | None = None) -> pd.DataFrame:
                 continue
             lang = language_candidates(s)[0]
             res = eng.recognize(path, languages=lang, return_attempts=True)
-            usable = res["status"] == "ok"
-            row[f"ocr_conf_{s}"] = res["ocr_confidence"] if usable else 0.0
-            row[f"ocr_share_{s}"] = native_share(res["clean_text"], s) if usable else 0.0
+            ev = reading_evidence(res, s)          # the app's rule: rejected readings count via best attempt
+            row[f"ocr_conf_{s}"], row[f"ocr_share_{s}"] = ev["confidence"], ev["native_share"]
         rows.append(row)
         if i % 20 == 0:
             print(f"  {i}/{len(meta)} images ({time.time() - t0:.0f}s, {reused} OCR readings reused)", flush=True)

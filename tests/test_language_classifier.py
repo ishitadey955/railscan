@@ -139,3 +139,19 @@ def test_identify_script_reads_every_script_and_returns_the_chosen_reading():
     assert len(eng.langs) == len(SCRIPTS)                     # one reading per script
     assert r["combined"]["script"] == "Devanagari"
     assert r["ocr"]["clean_text"] == "नई दिल्ली" and r["ocr"]["script_source"] == "cnn+ocr"
+
+
+def test_rejected_reading_still_counts_so_tiny_differences_do_not_flip_the_script():
+    """The user's Ratnagiri photo on Streamlit Cloud: the Devanagari reading landed just under the
+    OCR's noise cutoff (30) and counted as 0, so junk read with the Kannada reader won (75%)."""
+    from src.script_evidence import fuse, reading_evidence
+    text = "र्त्नागिम\nर्नागिरी\nTNAGIR"
+    accepted = {"status": "ok", "ocr_confidence": 30.4, "clean_text": text}
+    rejected = {"status": "OCR failed", "ocr_confidence": None, "clean_text": "",
+                "attempts": [{"ocr_confidence": 29.9, "text": text}, {"ocr_confidence": 12.0, "text": "x"}]}
+    kannada = {"status": "ok", "ocr_confidence": 40.2, "clean_text": "4dlm\nTಸlff\nAIIAGI\nಕಲಿ"}
+    cnn = {"Bengali": 0.05, "Devanagari": 0.91, "Kannada": 0.01, "Telugu": 0.02}
+    for dev in (accepted, rejected):
+        ev = {"Devanagari": reading_evidence(dev, "Devanagari"), "Kannada": reading_evidence(kannada, "Kannada")}
+        assert fuse(cnn, ev, ocr_weight=60)["script"] == "Devanagari"
+    assert reading_evidence({"status": "OCR failed", "attempts": []}, "Devanagari")["confidence"] == 0.0

@@ -188,14 +188,15 @@ App model, test-set results (145 images):
 **Image model + OCR evidence (used by the app).** `src/script_evidence.py`, evaluated with `scripts/evaluate_script_fusion.py`:
 - The sign is read once with each script's EasyOCR recogniser (now including Bengali). A script's evidence = OCR confidence × the share of the recognised letters that belong to that script's Unicode block.
 - The evidence is combined with the CNN probabilities: `softmax(log P_cnn + w × evidence)`.
+- A reading the OCR rejects as noise (confidence below 30) still counts through its best attempt. Counting it as 0 made results flip on tiny differences between computers (30.4 counted fully, 29.9 not at all); measured, this change raised test accuracy from 79.2% to 86.3%.
 - The weight `w` (60, the largest value in the grid) and the "confident" threshold (0.9) were chosen on the 197 validation images only.
 
 | On the 197 test images | Image model alone | Image model + OCR evidence |
 |---|---|---|
-| Accuracy | 49.2% | **79.2%** |
-| Share marked confident | – | 72% |
-| Accuracy when confident | – | **92.9%** |
-| Accuracy when not confident | – | 45% |
+| Accuracy | 49.2% | **86.3%** |
+| Share marked confident | – | 80% |
+| Accuracy when confident | – | **94.3%** |
+| Accuracy when not confident | – | 54% |
 
 - A scan reads the photo with four recognisers, so it takes about 30 s on CPU.
 
