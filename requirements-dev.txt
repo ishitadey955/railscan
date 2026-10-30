@@ -3,3 +3,4 @@
 pgserver==0.1.4        # throw-away local PostgreSQL for tests/test_users.py
 playwright==1.64.1     # browser screenshots / UI checks (uses the installed Microsoft Edge)
 pyflakes
+tensorflow==2.21.0     # only to (re)train the script CNN: scripts/train_cnn.py

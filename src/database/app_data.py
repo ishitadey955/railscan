@@ -8,11 +8,13 @@ The CSVs remain the source the database is built from (scripts/setup_database.py
 """
 from __future__ import annotations
 
-from typing import Optional
+import json
+import sqlite3
+from typing import Any, Callable, Optional
 
 import pandas as pd
 
-from .connection import PathLike, connect, database_ready
+from .connection import PathLike, connect, database_ready, table_exists, transaction
 from .schema import DB_TO_DATASET
 
 
@@ -57,39 +59,77 @@ def load_master_db(db_path: Optional[PathLike] = None, train_no: Optional[str] =
     return df
 
 
+# Summaries of the ~1M-row train_runs table take 5-40 s to compute, so they are stored in
+# this small table and recomputed only when train_runs changes. Every import adds a row to
+# database_metadata, so (last import, last train_runs id) identifies the table contents.
+CACHE_TABLE = "app_cache"
+
+
+def _fingerprint(conn: sqlite3.Connection) -> str:
+    meta = conn.execute("SELECT MAX(id) FROM database_metadata").fetchone()[0]         if table_exists(conn, "database_metadata") else None
+    return f"{meta}:{conn.execute('SELECT MAX(id) FROM train_runs').fetchone()[0]}"
+
+
+def _cached(db_path: Optional[PathLike], key: str, compute: Callable[[sqlite3.Connection], Any]) -> Any:
+    """``compute(conn)`` (JSON-serialisable), read from CACHE_TABLE when still valid."""
+    with connect(db_path, read_only=True) as conn:
+        fp = _fingerprint(conn)
+        if table_exists(conn, CACHE_TABLE):
+            row = conn.execute(f"SELECT value FROM {CACHE_TABLE} WHERE key = ? AND fingerprint = ?",
+                               (key, fp)).fetchone()
+            if row:
+                return json.loads(row[0])
+        value = compute(conn)
+    try:
+        with connect(db_path) as conn, transaction(conn):
+            conn.execute(f"CREATE TABLE IF NOT EXISTS {CACHE_TABLE} "
+                         "(key TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, value TEXT NOT NULL)")
+            conn.execute(f"INSERT OR REPLACE INTO {CACHE_TABLE} VALUES (?, ?, ?)", (key, fp, json.dumps(value)))
+    except sqlite3.Error:      # read-only database: the result is still right, only not stored
+        pass
+    return value
+
+
 def train_list_db(db_path: Optional[PathLike] = None) -> pd.DataFrame:
     """One row per train: train_no, train_name, journeys, rows (same as railscan_service.list_trains)."""
-    with connect(db_path, read_only=True) as conn:
-        df = pd.read_sql_query(
+    def compute(conn):
+        return pd.read_sql_query(
             "SELECT train_no, MAX(train_name) AS train_name, COUNT(DISTINCT journey_date) AS journeys, "
-            "COUNT(*) AS rows FROM train_runs GROUP BY train_no ORDER BY train_no", conn)
+            "COUNT(*) AS rows FROM train_runs GROUP BY train_no ORDER BY train_no", conn).to_dict("list")
+    df = pd.DataFrame(_cached(db_path, "train_list", compute))
     df["train_no"] = df["train_no"].astype(str).str.zfill(5)
     return df
 
 
 def overview_db(db_path: Optional[PathLike] = None) -> dict:
     """Dataset-wide figures for the Data page, computed in SQL (no full load)."""
-    with connect(db_path, read_only=True) as conn:
+    def compute(conn):
         one = lambda sql: conn.execute(sql).fetchone()[0]
         cols = [r[1] for r in conn.execute("PRAGMA table_info(train_runs)") if r[1] not in ("id", "train_key")]
         nulls = conn.execute("SELECT COUNT(*), " + ", ".join(f'SUM("{c}" IS NULL)' for c in cols)
                              + " FROM train_runs").fetchone()
-        rows = nulls[0]
-        delays = pd.read_sql_query("SELECT next_station_arrival_delay_min AS d FROM train_runs", conn)["d"]
-        risk = dict(conn.execute("SELECT next_delay_risk_label, COUNT(*) FROM train_runs GROUP BY 1").fetchall())
-        overview = {
-            "rows": rows, "columns": len(cols),
+        return {
+            "cols": cols, "nulls": list(tuple(nulls)),
+            "risk": [list(r) for r in conn.execute("SELECT next_delay_risk_label, COUNT(*) FROM train_runs GROUP BY 1")],
             "trains": one("SELECT COUNT(DISTINCT train_no) FROM train_runs"),
             "journeys": one("SELECT COUNT(*) FROM (SELECT DISTINCT train_no, journey_date FROM train_runs)"),
             "stations": one("SELECT COUNT(*) FROM (SELECT station_code FROM train_runs UNION "
                             "SELECT next_station_code FROM train_runs WHERE next_station_code IS NOT NULL)"),
-            "date_min": pd.Timestamp(one("SELECT MIN(journey_date) FROM train_runs")).date(),
-            "date_max": pd.Timestamp(one("SELECT MAX(journey_date) FROM train_runs")).date(),
+            "date_min": one("SELECT MIN(journey_date) FROM train_runs"),
+            "date_max": one("SELECT MAX(journey_date) FROM train_runs"),
         }
-    missing = pd.DataFrame({"column": [DB_TO_DATASET.get(c, c) for c in cols],
+    c = _cached(db_path, "overview", compute)
+    with connect(db_path, read_only=True) as conn:
+        delays = pd.read_sql_query("SELECT next_station_arrival_delay_min AS d FROM train_runs", conn)["d"]
+    cols, nulls = c["cols"], c["nulls"]
+    rows = nulls[0]
+    overview = {"rows": rows, "columns": len(cols), "trains": c["trains"], "journeys": c["journeys"],
+                "stations": c["stations"], "date_min": pd.Timestamp(c["date_min"]).date(),
+                "date_max": pd.Timestamp(c["date_max"]).date()}
+    missing = pd.DataFrame({"column": [DB_TO_DATASET.get(col, col) for col in cols],
                             "missing %": [round(n / rows * 100, 2) if rows else 0.0 for n in nulls[1:]]})
     missing = missing[missing["missing %"] > 0].sort_values("missing %", ascending=False).reset_index(drop=True)
-    return {"overview": overview, "missing": missing, "delays": delays, "risk": risk}
+    return {"overview": overview, "missing": missing, "delays": delays, "risk": dict(map(tuple, c["risk"]))}
 
 
 def load_timetable_db(db_path: Optional[PathLike] = None) -> pd.DataFrame:

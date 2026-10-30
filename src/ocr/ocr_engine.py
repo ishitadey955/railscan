@@ -22,10 +22,14 @@ own reader, so every language combination gets its own cached reader.
 """
 from __future__ import annotations
 
+import hashlib
+import importlib.util
 import logging
 import sys
+import threading
 import time
 import unicodedata
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
@@ -44,10 +48,10 @@ from .preprocessing import (
 from .text_cleaning import clean_text
 from .train_numbers import split_train_numbers
 
-try:
-    import easyocr  # type: ignore
-except Exception:  # pragma: no cover - reported at run time as a failed OCR
-    easyocr = None  # type: ignore
+# EasyOCR pulls in PyTorch (~10 s and ~250 MB), so it is imported on first use only.
+# ``easyocr`` stays _NOT_LOADED until then, and is None when the package is missing.
+_NOT_LOADED = object()
+easyocr: Any = _NOT_LOADED
 
 log = logging.getLogger(__name__)
 
@@ -164,6 +168,24 @@ class OCRBackendUnavailable(RuntimeError):
 
 
 _EASYOCR_READERS: Dict[Tuple[str, ...], Any] = {}
+_READER_LOCK = threading.Lock()          # the app may warm the readers up in a background thread
+
+
+def _easyocr_module():
+    global easyocr
+    if easyocr is _NOT_LOADED:
+        try:
+            import easyocr as module  # type: ignore
+        except Exception:  # pragma: no cover - reported at run time as a failed OCR
+            module = None
+        easyocr = module
+    return easyocr
+
+
+def _easyocr_installed() -> bool:
+    if easyocr is _NOT_LOADED:
+        return importlib.util.find_spec("easyocr") is not None
+    return easyocr is not None
 
 
 def easyocr_languages(lang: str) -> List[str]:
@@ -175,11 +197,48 @@ def easyocr_languages(lang: str) -> List[str]:
 def _easyocr_reader(langs: Sequence[str]):
     """One cached reader per language combination (model files load once per process)."""
     key = tuple(langs)
-    if key not in _EASYOCR_READERS:
-        if easyocr is None:
-            raise OCRBackendUnavailable("easyocr is not installed (pip install -r requirements.txt)")
-        _EASYOCR_READERS[key] = easyocr.Reader(list(langs), gpu=False, verbose=False)
-    return _EASYOCR_READERS[key]
+    with _READER_LOCK:
+        if key not in _EASYOCR_READERS:
+            module = _easyocr_module()
+            if module is None:
+                raise OCRBackendUnavailable("easyocr is not installed (pip install -r requirements.txt)")
+            # The text detector (CRAFT) is the same model for every language: load it once and
+            # share it, so each further language only adds its recognition model (less memory;
+            # the readings are identical).
+            shared = next(iter(_EASYOCR_READERS.values()), None)
+            if shared is None:
+                reader = module.Reader(list(langs), gpu=False, verbose=False)
+            else:
+                reader = module.Reader(list(langs), gpu=False, verbose=False, detector=False)
+                reader.detector, reader.get_textbox = shared.detector, shared.get_textbox
+                reader.detect_network = shared.detect_network
+            _EASYOCR_READERS[key] = reader
+        return _EASYOCR_READERS[key]
+
+
+_DETECTIONS: "OrderedDict[str, Tuple[list, list]]" = OrderedDict()     # recent text-box detections
+
+
+def _detect(reader, image: np.ndarray) -> Tuple[list, list]:
+    """Text boxes of a BGR image (EasyOCR's default detection settings, as in ``readtext``).
+
+    All readers share one detector, so the boxes do not depend on the language. A scan
+    reads the same image with four scripts; detecting it once instead of four times saves
+    most of the OCR time on a CPU (~8 s per detection for a phone photo on 2 cores).
+    """
+    key = hashlib.blake2b(image.tobytes(), digest_size=16).hexdigest() + str(image.shape)
+    if key not in _DETECTIONS:
+        horizontal, free = reader.detect(image, reformat=False)
+        _DETECTIONS[key] = (horizontal[0], free[0])
+        while len(_DETECTIONS) > 8:
+            _DETECTIONS.popitem(last=False)
+    return _DETECTIONS[key]
+
+
+def preload_readers(languages: Sequence[str]) -> None:
+    """Load (and on a fresh machine download) the readers for these language strings now."""
+    for lang in languages:
+        _easyocr_reader(easyocr_languages(lang))
 
 
 # --------------------------------------------------------------------------
@@ -210,7 +269,7 @@ class OCREngine:
         """Language codes EasyOCR can read here (empty set if easyocr is not installed)."""
         if self._langs_cache is not None:
             return self._langs_cache
-        return set(LANG_TO_EASYOCR) if easyocr is not None else set()
+        return set(LANG_TO_EASYOCR) if _easyocr_installed() else set()
 
     # ---- script detection ------------------------------------------------
     def _get_predictor(self) -> Callable[..., dict]:
@@ -254,7 +313,10 @@ class OCREngine:
         reader = _easyocr_reader(easyocr_languages(lang))
         if image.ndim == 2:
             image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-        boxes = reader.readtext(image, detail=1, paragraph=False)
+        # == reader.readtext(image, detail=1, paragraph=False), with the detection reused
+        horizontal, free = _detect(reader, image)
+        boxes = reader.recognize(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), horizontal, free,
+                                 detail=1, paragraph=False, reformat=False)
         items = []
         for bbox, text, conf in boxes:
             text = (text or "").strip()

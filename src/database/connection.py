@@ -116,6 +116,8 @@ def database_ready(db_path: Optional[PathLike] = None, table: str = "train_runs"
     """True when the file exists and ``table`` holds at least one row. Never raises."""
     try:
         with connect(db_path, read_only=True) as conn:
-            return table_count(conn, table) > 0
+            # EXISTS stops at the first row (COUNT(*) reads the whole ~1M-row table)
+            return table_exists(conn, table) and bool(
+                conn.execute(f'SELECT EXISTS (SELECT 1 FROM "{table}")').fetchone()[0])
     except (DatabaseUnavailable, sqlite3.Error):
         return False

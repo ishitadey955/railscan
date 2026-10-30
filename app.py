@@ -98,6 +98,9 @@ def ensure_railway_db() -> str:
             failed = [f"{r.target_table}: {r.error}" for r in (import_stations(), import_dataset(replace=True),
                                                                  import_timetable()) if r.status != "success"]
             if not failed and data_ready():
+                from src.database.app_data import overview_db, train_list_db
+                train_list_db()          # store the dataset summaries now, while the user waits anyway
+                overview_db()
                 return "built"
             errors.append(f"{target or 'project folder'}: " + "; ".join(failed or ["tables still empty"]))
         except Exception as exc:
@@ -152,19 +155,43 @@ def get_coverage() -> set:
 
 
 def cnn_status():
-    """Cheap check (no TensorFlow import): the model is only loaded when a scan runs,
-    so opening the page stays fast and the server stays responsive."""
+    """Cheap check (no model import): the models load in the background after login
+    (warm_up_scanner), so opening the page stays fast and the server stays responsive."""
     import importlib.util
     from src.image.prediction import LABELS_PATH, MODEL_PATH
     for p in (MODEL_PATH, LABELS_PATH):
         if not p.exists():
             return False, f"{p.name} not found. Run: python scripts/train_cnn.py --arch mobilenetv2 --img-size 224"
-    if importlib.util.find_spec("tensorflow") is None:
-        return False, "TensorFlow is not installed (pip install -r requirements.txt)"
+    for package in ("keras", "torch"):
+        if importlib.util.find_spec(package) is None:
+            return False, f"{package} is not installed (pip install -r requirements.txt)"
     return True, None
 
 
-@st.cache_resource(show_spinner="Loading the script classifier (first scan only)...")
+@st.cache_resource(show_spinner=False)
+def warm_up_scanner():
+    """Start loading the CNN and the four OCR readers in a background thread (once per server
+    process), so the first scan does not wait ~20 s for them (or for the one-time model
+    download on a fresh server). A scan started earlier simply waits for the same load."""
+    import threading
+
+    def run():
+        try:
+            from src.image.prediction import load_model
+            from src.ocr import language_candidates
+            from src.ocr.ocr_engine import preload_readers
+            from src.script_evidence import SCRIPTS
+            load_model()
+            preload_readers([language_candidates(s_)[0] for s_ in SCRIPTS])
+        except Exception:      # the scan itself reports what is missing
+            pass
+
+    thread = threading.Thread(target=run, name="railscan-scanner-warm-up", daemon=True)
+    thread.start()
+    return thread
+
+
+@st.cache_resource(show_spinner="Loading the scanner models (only right after the server starts)...")
 def get_cnn():
     from src.image.prediction import load_model
     return load_model()
@@ -327,6 +354,8 @@ except (DataUnavailable, RuntimeError) as exc:
     st.caption("Reload the page to retry. If it keeps failing, send this message (it names the cause).")
     st.stop()
 PREDICTOR, PREDICTOR_ERROR = get_predictor()
+if cnn_status()[0]:
+    warm_up_scanner()
 
 st.title("RailScan")
 st.markdown("CNN-Based Indian Railway Sign Recognition and Delay Prediction")
@@ -361,7 +390,7 @@ def page_scan() -> None:
 
     if st.button("Scan image", type="primary", disabled=not cnn_ok):
         get_cnn()
-        with st.spinner("Classifying script and reading text (the first OCR run downloads models)..."):
+        with st.spinner("Classifying script and reading text..."):
             try:
                 st.session_state.scan = run_scan(data)
                 st.session_state.scan["file"] = up.name

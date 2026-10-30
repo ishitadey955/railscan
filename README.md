@@ -349,7 +349,8 @@ cd C:\path\to\railscan
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1          # if blocked: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 python -m pip install --upgrade pip
-pip install -r requirements.txt       # ~3.2 GB: TensorFlow + EasyOCR with CPU-only PyTorch
+pip install -r requirements.txt       # the app: EasyOCR + Keras on CPU-only PyTorch
+pip install -r requirements-dev.txt   # also TensorFlow (only to retrain the CNN) and test tools
 ```
 **OCR** needs nothing beyond `requirements.txt`. The file points pip at PyTorch's CPU-only index, so the multi-GB CUDA build is never downloaded. Check the OCR setup with `python scripts/test_ocr.py --check`.
 

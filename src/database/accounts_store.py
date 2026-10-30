@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import threading
 from contextlib import contextmanager
 from typing import Any, Dict, Iterator, List, Optional, Sequence
 
@@ -22,6 +23,11 @@ from .connection import PathLike, connect, transaction
 ENV_URL = "RAILSCAN_ACCOUNTS_DB_URL"
 _PG_PREFIXES = ("postgresql://", "postgres://")
 _READY: set = set()          # PostgreSQL URLs whose tables were created in this process
+# One open PostgreSQL connection per URL, reused: a new connection to a hosted database
+# costs several network round trips (TCP, TLS, password exchange) before the first query.
+# The lock lets one request use it at a time, so transactions of parallel sessions never mix.
+_PG_CONNECTIONS: Dict[str, Any] = {}
+_PG_LOCK = threading.Lock()
 
 PG_DDL = [
     """CREATE TABLE IF NOT EXISTS users (
@@ -115,16 +121,31 @@ def open_store(db_path: Optional[PathLike] = None) -> Iterator[Store]:
         except ImportError as exc:  # pragma: no cover
             raise RuntimeError("PostgreSQL accounts need psycopg: pip install -r requirements.txt") from exc
         url = str(db_path or os.environ[ENV_URL]).strip()
-        # prepare_threshold=None: no server-side prepared statements, which connection
-        # poolers in transaction mode (e.g. Supabase port 6543, PgBouncer) do not support
-        with psycopg.connect(url, row_factory=dict_row, autocommit=True, prepare_threshold=None) as conn:
+        with _PG_LOCK:
+            conn = _PG_CONNECTIONS.get(url)
+            if conn is not None:
+                try:
+                    conn.execute("SELECT 1")        # the server or pooler may have closed an idle connection
+                except psycopg.Error:
+                    conn.close()
+                    conn = None
+            if conn is None:
+                # prepare_threshold=None: no server-side prepared statements, which connection
+                # poolers in transaction mode (e.g. Supabase port 6543, PgBouncer) do not support
+                conn = _PG_CONNECTIONS[url] = psycopg.connect(url, row_factory=dict_row, autocommit=True,
+                                                              prepare_threshold=None)
             store = Store(conn, "postgres")
-            if url not in _READY:
-                with store.transaction():
-                    for ddl in PG_DDL:
-                        conn.execute(ddl)
-                _READY.add(url)
-            yield store
+            try:
+                if url not in _READY:
+                    with store.transaction():
+                        for ddl in PG_DDL:
+                            conn.execute(ddl)
+                    _READY.add(url)
+                yield store
+            except psycopg.OperationalError:     # connection lost mid-request: reconnect next time
+                _PG_CONNECTIONS.pop(url, None)
+                conn.close()
+                raise
     else:
         from .schema import initialize_database
         initialize_database(db_path)

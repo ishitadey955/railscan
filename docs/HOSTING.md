@@ -11,7 +11,7 @@ The account code (`src/database/users.py` via `accounts_store.py`) runs unchange
 
 ## Requirements of the host
 - **Python 3.11** and `pip install -r requirements.txt`. The file pins CPU-only PyTorch, so no GPU packages are downloaded.
-- **About 2 GB of RAM or more.** Measured locally, the app peaks at about 1.8 GB during a sign scan, when TensorFlow, PyTorch and the EasyOCR models are loaded. The journey planner, history and log-in pages use far less. A host with less memory will restart the app on the first scan.
+- **About 1.5 GB of RAM or more.** Measured locally, the app peaks at about 1.5 GB during a sign scan, when PyTorch, the script CNN and the four EasyOCR readers are loaded (they load in the background right after log-in). The CNN runs with Keras on the PyTorch backend, so TensorFlow is not installed on the server. A host with less memory will restart the app on the first scan.
 - About 3.5 GB of disk for the installed packages, about 600 MB for the railway database, plus about 330 MB for the EasyOCR models. The models download on the first scan of each script, and again after every restart on hosts without persistent disk.
 
 ---
@@ -74,7 +74,7 @@ git push -u origin main
    ```toml
    RAILSCAN_ACCOUNTS_DB_URL = "postgresql://...your connection string..."
    ```
-4. Choose **Deploy**. The first build installs `requirements.txt`, which takes several minutes because of TensorFlow and PyTorch.
+4. Choose **Deploy**. The first build installs `requirements.txt`, which takes a few minutes because of PyTorch.
 5. On the first visit, the app builds the railway tables from the Parquet file ("Preparing the railway database", about 4–5 minutes). Keep the tab open; later visits are immediate until the app restarts. The first scan of each script downloads EasyOCR's models.
 
 Check the memory limit of the free tier in Streamlit's current documentation against the measured peak of about 1.8 GB. If the app restarts during a scan, use a host with more memory (step 4b). Everything except scanning, including log-in, the planner and history, uses much less memory.

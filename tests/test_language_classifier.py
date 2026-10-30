@@ -17,7 +17,7 @@ META = ROOT / "data" / "processed" / "RailScan_CNN_Metadata.csv"
 
 @pytest.mark.skipif(not MODEL.exists(), reason="CNN not trained")
 def test_model_input_shape_matches_label_file():
-    pytest.importorskip("tensorflow")
+    pytest.importorskip("keras")
     from src.image.prediction import load_model
     model, classes, size = load_model()
     assert model.input_shape == (None, size, size, 3)
@@ -27,7 +27,7 @@ def test_model_input_shape_matches_label_file():
 
 @pytest.mark.skipif(not MODEL.exists(), reason="CNN not trained")
 def test_predict_script_on_real_test_images():
-    pytest.importorskip("tensorflow")
+    pytest.importorskip("keras")
     meta = pd.read_csv(META)
     paths = meta[meta.split == "test"].groupby("script_label").head(1)
     if paths.empty or not (ROOT / paths.image_path.iat[0]).exists():
@@ -53,7 +53,10 @@ class _Reader:
     def __init__(self, boxes):
         self.boxes = boxes
 
-    def readtext(self, image, detail=1, paragraph=False):
+    def detect(self, image, reformat=True):
+        return [[]], [[]]
+
+    def recognize(self, grey, horizontal, free, detail=1, paragraph=False, reformat=True):
         return self.boxes
 
 
