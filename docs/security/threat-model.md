@@ -13,6 +13,7 @@ allowance (a burst of scans can get the app throttled for everyone).
 | Photo upload | Huge or malformed files (A04) | 10 MB server limit; images over 60 megapixels refused from the file header before decoding; decompression bombs and decoding errors become a clean message; photos never stored | — |
 | Scan button | CPU exhaustion | 10 scans per 10 min per user, in the database | — |
 | Station search / OCR text | Injection (A03), XSS | parameterised SQL, OCR text shown with `st.code`/markdown (no raw HTML) | — |
+| Google OCR (when enabled) | Photos leave RailScan; key leak; cost | key only in Secrets and in a request header (never in URLs or logs); 1,000 photos per 30 days cap, then EasyOCR; privacy note tells users | Google's own data handling (their terms) |
 | Configuration | Leaked secrets (A02, A05) | secrets only in Streamlit Secrets / env; examples committed; gitleaks in CI; history scanned clean (30 Oct 2026) | — |
 | Errors | Information leakage (A05) | friendly messages; details only in redacted logs; `showErrorDetails = "type"` | — |
 | Dependencies | Vulnerable packages (A06) | pinned versions | No automated audit yet (pip-audit / Dependabot) |

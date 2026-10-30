@@ -84,7 +84,9 @@ PRIVACY = ("- **Account:** username, optional display name, a salted scrypt hash
            "- **History:** the results RailScan showed you (scans, delay estimates), so you can look them up "
            "again. Uploaded photos are **never** stored.\n"
            "- **Security records:** log-in attempts (kept 30 days, to block password guessing) and usage "
-           "counts (kept one day, to limit scans and sign-ups).\n"
+           "counts (kept up to 30 days, to limit scans, sign-ups and Google OCR use).\n"
+           "- **Text reading:** when Google OCR is switched on, the photo you scan is sent to Google Cloud "
+           "Vision to read its text (Google's terms apply); RailScan itself still never stores it.\n"
            "- **Your control:** download everything with *Download my data*; deleting your account deletes "
            "its history too.")
 
@@ -93,8 +95,9 @@ st.set_page_config(page_title="RailScan", layout="wide")
 # Hosted deployments keep the accounts database address in Streamlit secrets
 # (Settings -> Secrets: RAILSCAN_ACCOUNTS_DB_URL = "postgresql://..."); locally it may be an environment variable.
 try:
-    if "RAILSCAN_ACCOUNTS_DB_URL" in st.secrets:
-        os.environ.setdefault("RAILSCAN_ACCOUNTS_DB_URL", str(st.secrets["RAILSCAN_ACCOUNTS_DB_URL"]))
+    for _name in ("RAILSCAN_ACCOUNTS_DB_URL", "GOOGLE_VISION_API_KEY"):
+        if _name in st.secrets:
+            os.environ.setdefault(_name, str(st.secrets[_name]))
 except Exception:  # no secrets file: local SQLite accounts
     pass
 LOG = get_logger("railscan.app")
@@ -626,8 +629,8 @@ def record_scan(name: str, scan: dict) -> None:
     where = (f"{station['station_name']} ({station['station_code']})" if station.get("station_code")
              else "no station identified")
     trains = ", ".join(scan["numbers"]["known_trains"]) or "none"
-    read_as = LANG_NAMES.get(ocr.get("ocr_language") or "", "") or f"no text (CNN: {s_['predicted_script']})"
-    record("scan", f"{name}: {where}; read as {read_as}; trains {trains}",
+    label = (read_as(ocr) if ocr.get("status") == "ok" else "") or f"no text (CNN: {s_['predicted_script']})"
+    record("scan", f"{name}: {where}; read as {label}; trains {trains}",
            {"file": name, "script": s_["predicted_script"], "script_confidence": round(s_["confidence"], 3),
             "script_probabilities": {k: round(v, 3) for k, v in s_["class_probabilities"].items()},
             "ocr_status": ocr["status"], "ocr_text": ocr.get("clean_text"), "ocr_raw_text": ocr.get("raw_text"),
@@ -635,6 +638,33 @@ def record_scan(name: str, scan: dict) -> None:
             "station": {k: station.get(k) for k in ("status", "station_name", "station_code", "match_score",
                                                     "match_method")},
             "train_numbers": scan["numbers"], "platforms": scan["platforms"]})
+
+
+def google_reading(data: bytes):
+    """Google Cloud Vision's reading of the photo, or None (no key, monthly cap reached, or any failure:
+    the scan then shows EasyOCR's reading, so a scan never fails because of Google)."""
+    from src.ocr import google_vision
+    if not google_vision.available():
+        return None
+    try:
+        accounts.take_quota("app", "google_ocr")           # free tier: 1,000 photos a month
+    except AccountError:
+        LOG.warning("Google OCR monthly cap reached; EasyOCR used", extra={"event": "google_ocr_cap"})
+        return None
+    try:
+        result = google_vision.recognize(data)
+    except google_vision.GoogleOCRError as exc:
+        LOG.warning("Google OCR failed; EasyOCR used", extra={"event": "google_ocr_failed", "reason": str(exc)})
+        return None
+    return result if result["status"] == "ok" else None
+
+
+def read_as(ocr: dict) -> str:
+    """'Devanagari + English' for an EasyOCR reading, 'Google (hi, en)' for a Google one."""
+    if ocr.get("ocr_backend") == "google":
+        langs = ocr.get("detected_languages") or []
+        return "Google" + (f" ({', '.join(langs)})" if langs else "")
+    return LANG_NAMES.get(ocr.get("ocr_language") or "", ocr.get("ocr_language") or "")
 
 
 def run_scan(data: bytes) -> dict:
@@ -646,12 +676,16 @@ def run_scan(data: bytes) -> dict:
     script = {"predicted_script": c["script"], "confidence": c["confidence"],
               "class_probabilities": c["probabilities"], "low_confidence": c["low_confidence"],
               "cnn_probabilities": res["cnn"]["class_probabilities"]}
-    ocr = res["ocr"]
+    others = other_readings(res)
+    google = google_reading(data)
+    if google is not None:      # Google read the text: show it; EasyOCR's reading still helps the station match
+        others = [res["ocr"].get("clean_text") or ""] + others
+    ocr = google or res["ocr"]
     text = ocr.get("clean_text") or ""
     numbers = summarize_ocr_numbers(get_trains(), ocr.get("train_numbers") or [])
     # every reading counts, also when the chosen one is poor: a station seen only in another script's
     # reading or in a faint reading is suggested for the user to confirm (never accepted automatically)
-    station = get_matcher().match_readings(ocr, other_readings(res))
+    station = get_matcher().match_readings(ocr, others)
     st.session_state.scan_counter = st.session_state.get("scan_counter", 0) + 1
     return {"script": script, "ocr": ocr, "numbers": numbers, "station": station,
             "platforms": platform_numbers(text), "quality": measure(load_rgb(data)),
@@ -695,11 +729,10 @@ def show_scan(scan: dict) -> None:
         if ocr.get("raw_text"):
             st.code(ocr["raw_text"], language=None)
     else:
-        used = LANG_NAMES.get(ocr["ocr_language"], ocr["ocr_language"])
         c1, c2, c3 = st.columns(3)
-        c1.metric("OCR confidence", f"{ocr['ocr_confidence']:.0f} / 100")
-        c2.metric("Read as", used)
-        c3.metric("Engine", "EasyOCR")
+        c1.metric("OCR confidence", "-" if ocr.get("ocr_confidence") is None else f"{ocr['ocr_confidence']:.0f} / 100")
+        c2.metric("Read as", read_as(ocr))
+        c3.metric("Engine", "Google Cloud Vision" if ocr.get("ocr_backend") == "google" else "EasyOCR")
         st.markdown("**Recognised text (cleaned)**")
         st.code(ocr["clean_text"], language=None, wrap_lines=True)
         with st.expander("Raw OCR output and attempts"):

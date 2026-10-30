@@ -49,7 +49,10 @@ SCRYPT_N, SCRYPT_R, SCRYPT_P = 2 ** 14, 8, 1
 LOGIN_FAILED = "Incorrect username or password."
 # Rate limits: kind -> (allowed actions, window in minutes). A scan costs ~20 s of full CPU on a
 # small host, so a burst of scans can get the whole app throttled for everyone.
-RATE_LIMITS = {"scan": (10, 10), "scan_all": (20, 10), "signup": (5, 60)}   # scan_all: the whole app
+RATE_LIMITS = {"scan": (10, 10), "scan_all": (20, 10), "signup": (5, 60),   # scan_all: the whole app
+               # Google Cloud Vision OCR, whole app: its free tier is 1,000 photos a month; past this
+               # the app reads with EasyOCR instead, so there is never a surprise bill
+               "google_ocr": (1000, 30 * 24 * 60)}
 
 
 class AccountError(ValueError):
@@ -235,9 +238,10 @@ def take_quota(subject: str, kind: str, db_path: Optional[PathLike] = None, *,
                                    f"Please try again in about {wait} minute{'s' if wait != 1 else ''}.")
             db.run("INSERT INTO usage_events (subject, kind, created_at) VALUES (?, ?, ?)",
                    (subject, kind, now.isoformat(timespec="seconds")))
-            # keep the table small: events older than a day no longer count anywhere
+            # keep the table small: events older than the longest limit window no longer count anywhere
+            keep_min = max([w for _, w in RATE_LIMITS.values()] + [window_min])
             db.run("DELETE FROM usage_events WHERE created_at < ?",
-                   ((now - timedelta(days=1)).isoformat(timespec="seconds"),))
+                   ((now - timedelta(minutes=keep_min)).isoformat(timespec="seconds"),))
 
 
 # ------------------------------------------------------------------ history

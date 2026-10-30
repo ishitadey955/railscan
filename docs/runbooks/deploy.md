@@ -20,3 +20,15 @@ Streamlit Community Cloud redeploys `main` on every push. Production = `main`.
 ## Avoid
 Many pushes or reboots in a row: each restart loads the models again and the host may throttle the app's
 CPU (seen on 30 Oct 2026). Batch changes into one push.
+
+## Google OCR (optional)
+1. https://console.cloud.google.com -> create a project (e.g. "railscan").
+2. Billing -> link a billing account (Google requires one even for the free tier; RailScan caps use at
+   1,000 photos a month, inside the free tier).
+3. APIs & Services -> Library -> "Cloud Vision API" -> Enable.
+4. APIs & Services -> Credentials -> Create credentials -> API key. Edit it: API restrictions ->
+   Restrict key -> Cloud Vision API only. Copy the key.
+5. Streamlit: Manage app -> Settings -> Secrets: add `GOOGLE_VISION_API_KEY = "<the key>"`, save, reboot.
+6. Check: scan a sign; the Text section shows "Engine: Google Cloud Vision". Logs show
+   `google_ocr_failed` with the reason if the key or API setup is wrong (the app then uses EasyOCR).
+7. Measure it (on your PC, with the key in the environment): `python scripts/evaluate_google_ocr.py`.
