@@ -16,29 +16,54 @@ railway feed; predictions are model estimates, never official running status.
 """
 from __future__ import annotations
 
+import importlib
 import json
 import os
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import streamlit as st
 
-from src.database import accounts_store
-from src.database import users as accounts
-from src.database.users import AccountError
-from src.delay_prediction import DelayModelUnavailable, DelayPredictor, RISK_RULE
-from src.image.preprocessing import InvalidImageError, letterbox, load_rgb
-from src.image.quality import measure, retake_advice
-from src.railway_assistant import LIVE_DISCLAIMER, match_options, needs_confirmation, station_services, train_summary
-from src.next_station import describe_remaining
-from src.planner import METHOD_LABELS, forecast, model_coverage, typical_delays
-from src.stop_analysis import historical_stop_stats
-from src.position import estimate_from_forecast, estimate_from_typical, map_points
-from src.timetable import TimetableUnavailable, departure_stations, load_timetable, route, runs_on, schedule_on
-from src.railscan_service import (DataUnavailable, analyze, as_time, dataset_overview, journey, journey_dates,
-                                  list_trains, load_master, missing_summary, platform_numbers,
-                                  station_choices, summarize_ocr_numbers)
+
+def _forget_railscan_modules() -> None:
+    """Drop RailScan's own modules from the import cache so they load again from disk.
+
+    When a push is pulled into the running server, Streamlit re-imports the changed files
+    while other visitors' pages run. That can leave half-initialised RailScan modules
+    behind, and every later page load then fails with ImportError / KeyError until the app
+    is rebooted. Importing them again from scratch repairs it.
+    """
+    for name in [n for n in sys.modules if n == "src" or n.startswith("src.")]:
+        sys.modules.pop(name, None)
+    importlib.invalidate_caches()
+
+
+for _attempt in (1, 2):
+    try:
+        from src.database import accounts_store
+        from src.database import users as accounts
+        from src.database.users import AccountError
+        from src.delay_prediction import DelayModelUnavailable, DelayPredictor, RISK_RULE
+        from src.image.preprocessing import InvalidImageError, letterbox, load_rgb
+        from src.image.quality import measure, retake_advice
+        from src.railway_assistant import (LIVE_DISCLAIMER, match_options, needs_confirmation, station_services,
+                                           train_summary)
+        from src.next_station import describe_remaining
+        from src.planner import METHOD_LABELS, forecast, model_coverage, typical_delays
+        from src.stop_analysis import historical_stop_stats
+        from src.position import estimate_from_forecast, estimate_from_typical, map_points
+        from src.timetable import (TimetableUnavailable, departure_stations, load_timetable, route, runs_on,
+                                   schedule_on)
+        from src.railscan_service import (DataUnavailable, analyze, as_time, dataset_overview, journey,
+                                          journey_dates, list_trains, load_master, missing_summary,
+                                          platform_numbers, station_choices, summarize_ocr_numbers)
+        break
+    except (ImportError, KeyError):
+        if _attempt == 2:
+            raise
+        _forget_railscan_modules()
 
 ROOT = Path(__file__).resolve().parent
 REPORTS = ROOT / "reports"
