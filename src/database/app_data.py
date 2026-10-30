@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 import pandas as pd
@@ -112,26 +113,24 @@ def train_list_parquet(path: Optional[PathLike] = None) -> pd.DataFrame:
                                       rows=("train_no", "size")).reset_index())
 
 
-def overview_db(db_path: Optional[PathLike] = None) -> dict:
-    """Dataset-wide figures for the Data page, computed in SQL (no full load)."""
-    def compute(conn):
-        one = lambda sql: conn.execute(sql).fetchone()[0]
-        cols = [r[1] for r in conn.execute("PRAGMA table_info(train_runs)") if r[1] not in ("id", "train_key")]
-        nulls = conn.execute("SELECT COUNT(*), " + ", ".join(f'SUM("{c}" IS NULL)' for c in cols)
-                             + " FROM train_runs").fetchone()
-        return {
-            "cols": cols, "nulls": list(tuple(nulls)),
-            "risk": [list(r) for r in conn.execute("SELECT next_delay_risk_label, COUNT(*) FROM train_runs GROUP BY 1")],
-            "trains": one("SELECT COUNT(DISTINCT train_no) FROM train_runs"),
-            "journeys": one("SELECT COUNT(*) FROM (SELECT DISTINCT train_no, journey_date FROM train_runs)"),
-            "stations": one("SELECT COUNT(*) FROM (SELECT station_code FROM train_runs UNION "
-                            "SELECT next_station_code FROM train_runs WHERE next_station_code IS NOT NULL)"),
-            "date_min": one("SELECT MIN(journey_date) FROM train_runs"),
-            "date_max": one("SELECT MAX(journey_date) FROM train_runs"),
-        }
-    c = _cached(db_path, "overview", compute)
-    with connect(db_path, read_only=True) as conn:
-        delays = pd.read_sql_query("SELECT next_station_arrival_delay_min AS d FROM train_runs", conn)["d"]
+def _overview_figures(conn: sqlite3.Connection) -> dict:
+    one = lambda sql: conn.execute(sql).fetchone()[0]
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(train_runs)") if r[1] not in ("id", "train_key")]
+    nulls = conn.execute("SELECT COUNT(*), " + ", ".join(f'SUM("{c}" IS NULL)' for c in cols)
+                         + " FROM train_runs").fetchone()
+    return {
+        "cols": cols, "nulls": list(tuple(nulls)),
+        "risk": [list(r) for r in conn.execute("SELECT next_delay_risk_label, COUNT(*) FROM train_runs GROUP BY 1")],
+        "trains": one("SELECT COUNT(DISTINCT train_no) FROM train_runs"),
+        "journeys": one("SELECT COUNT(*) FROM (SELECT DISTINCT train_no, journey_date FROM train_runs)"),
+        "stations": one("SELECT COUNT(*) FROM (SELECT station_code FROM train_runs UNION "
+                        "SELECT next_station_code FROM train_runs WHERE next_station_code IS NOT NULL)"),
+        "date_min": one("SELECT MIN(journey_date) FROM train_runs"),
+        "date_max": one("SELECT MAX(journey_date) FROM train_runs"),
+    }
+
+
+def _overview(c: dict, delays: pd.Series) -> dict:
     cols, nulls = c["cols"], c["nulls"]
     rows = nulls[0]
     overview = {"rows": rows, "columns": len(cols), "trains": c["trains"], "journeys": c["journeys"],
@@ -141,6 +140,45 @@ def overview_db(db_path: Optional[PathLike] = None) -> dict:
                             "missing %": [round(n / rows * 100, 2) if rows else 0.0 for n in nulls[1:]]})
     missing = missing[missing["missing %"] > 0].sort_values("missing %", ascending=False).reset_index(drop=True)
     return {"overview": overview, "missing": missing, "delays": delays, "risk": dict(map(tuple, c["risk"]))}
+
+
+def overview_db(db_path: Optional[PathLike] = None) -> dict:
+    """Dataset-wide figures for the Data page, computed in SQL (no full load)."""
+    c = _cached(db_path, "overview", _overview_figures)
+    with connect(db_path, read_only=True) as conn:
+        delays = pd.read_sql_query("SELECT next_station_arrival_delay_min AS d FROM train_runs", conn)["d"]
+    return _overview(c, delays)
+
+
+# Without the full database (a fresh server reads trains one at a time, see on_demand.py) the
+# Data page uses these figures, computed once from the full database and committed next to the
+# Parquet file they describe; the delays come straight from the Parquet file (same values).
+OVERVIEW_FILE = Path(__file__).resolve().parents[2] / "data" / "processed" / "dataset_overview.json"
+
+
+def export_overview(db_path: Optional[PathLike] = None, out: PathLike = OVERVIEW_FILE,
+                    parquet_path: Optional[PathLike] = None) -> Path:
+    """Write the Data page figures of the full database, tagged with the Parquet file's sha256."""
+    from .import_data import DEFAULT_PARQUET, file_sha256
+    with connect(db_path, read_only=True) as conn:
+        figures = _overview_figures(conn)
+    figures["parquet_sha256"] = file_sha256(Path(parquet_path or DEFAULT_PARQUET))
+    Path(out).write_text(json.dumps(figures, indent=1) + "\n", encoding="utf-8")
+    return Path(out)
+
+
+def overview_files(path: PathLike = OVERVIEW_FILE, parquet_path: Optional[PathLike] = None) -> dict:
+    """overview_db() without the database: the exported figures plus the Parquet delays.
+
+    Adds ``"stale": True`` when the Parquet file changed after the figures were exported.
+    """
+    import pyarrow.parquet as pq
+    from .import_data import DEFAULT_PARQUET, file_sha256
+    parquet = Path(parquet_path or DEFAULT_PARQUET)
+    c = json.loads(Path(path).read_text(encoding="utf-8"))
+    col = pq.read_table(parquet, columns=["next_station_arrival_delay_min"]).column(0).to_pandas()
+    delays = pd.to_numeric(col.replace("", None), errors="coerce").rename("d")
+    return {**_overview(c, delays), "stale": c.get("parquet_sha256") != file_sha256(parquet)}
 
 
 def load_timetable_db(db_path: Optional[PathLike] = None) -> pd.DataFrame:

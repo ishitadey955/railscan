@@ -93,6 +93,13 @@ def cmd_import_timetable(a) -> bool:
     return _print_report(rep, a.json)
 
 
+def cmd_export_overview(a) -> bool:
+    """Data page figures for servers without the full database (data/processed/dataset_overview.json)."""
+    from src.database.app_data import export_overview
+    print(f"wrote {export_overview(a.db)}")
+    return True
+
+
 def cmd_stats(a) -> bool:
     try:
         st = get_database_statistics(a.db)
@@ -150,8 +157,10 @@ def main(argv=None) -> int:
     p = sub.add_parser("import-timetable", parents=[common], help="replace the timetable table")
     p.add_argument("--timetable", help="default data/processed/RailScan_Timetable.csv")
     sub.add_parser("stats", parents=[common], help="print real row counts")
+    sub.add_parser("export-overview", parents=[common],
+                   help="write the Data page figures to data/processed/dataset_overview.json (commit it)")
     p = sub.add_parser("all", parents=[common],
-                       help="init + import-stations + import-data + import-timetable + stats")
+                       help="init + import-stations + import-data + import-timetable + export-overview + stats")
     p.add_argument("--csv"); p.add_argument("--master"); p.add_argument("--supplement")
     p.add_argument("--timetable")
     p.add_argument("--replace", action="store_true")
@@ -159,10 +168,12 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
 
     if a.command == "all":
-        steps = [cmd_init, cmd_import_stations, cmd_import_data, cmd_import_timetable, cmd_stats]
+        steps = [cmd_init, cmd_import_stations, cmd_import_data, cmd_import_timetable, cmd_export_overview,
+                 cmd_stats]
     else:
         steps = [{"init": cmd_init, "import-data": cmd_import_data, "import-stations": cmd_import_stations,
-                  "import-timetable": cmd_import_timetable, "stats": cmd_stats}[a.command]]
+                  "import-timetable": cmd_import_timetable, "export-overview": cmd_export_overview,
+                  "stats": cmd_stats}[a.command]]
     for step in steps:
         if not step(a):
             return 1

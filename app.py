@@ -56,8 +56,7 @@ for _attempt in (1, 2):
         from src.position import estimate_from_forecast, estimate_from_typical, map_points
         from src.timetable import (TimetableUnavailable, departure_stations, load_timetable, route, runs_on,
                                    schedule_on)
-        from src.railscan_service import (analyze, as_time, dataset_overview, journey,
-                                          journey_dates, load_master, missing_summary,
+        from src.railscan_service import (analyze, as_time, journey, journey_dates, load_master,
                                           platform_numbers, station_choices, summarize_ocr_numbers)
         break
     except (ImportError, KeyError):
@@ -99,124 +98,44 @@ st.markdown("""
 
 
 # ---------------------------------------------------------------- cached resources
-def _build_railway_db() -> str:
-    """Build the SQLite railway tables when they are missing (a fresh server builds them from the
-    committed Parquet file, ~4-5 minutes). Raises with the reason when that fails.
+def full_database() -> bool:
+    """True where the full railway database has been built (python scripts/setup_database.py all).
 
-    Tried in the project folder first, then in the system temp folder (some hosts do not allow
-    writing next to the code).
+    A fresh server never builds it (4-5 minutes of full CPU after every restart). There each
+    train is read from the committed Parquet file when it is first needed (~0.4 s, same rows,
+    src/database/on_demand.py) and the Data page uses figures exported from the full database,
+    so no page ever waits for a build.
     """
-    import tempfile
-    from src.database import import_dataset, import_stations, initialize_database
     from src.database.app_data import data_ready
-    from src.database.import_data import import_timetable
-    errors = []
-    for target in (None, Path(tempfile.gettempdir()) / "railscan" / "railscan.db"):
-        if target is not None:
-            os.environ["RAILSCAN_DB_PATH"] = str(target)
-        if data_ready():
-            return "ready"
-        try:
-            initialize_database()
-            failed = [f"{r.target_table}: {r.error}" for r in (import_stations(), import_dataset(replace=True),
-                                                                 import_timetable()) if r.status != "success"]
-            if not failed and data_ready():
-                from src.database.app_data import overview_db, train_list_db
-                train_list_db()          # store the dataset summaries now, while the user waits anyway
-                overview_db()
-                return "built"
-            errors.append(f"{target or 'project folder'}: " + "; ".join(failed or ["tables still empty"]))
-        except Exception as exc:
-            errors.append(f"{target or 'project folder'}: {type(exc).__name__}: {exc}")
-    os.environ.pop("RAILSCAN_DB_PATH", None)
-    raise RuntimeError("The railway database could not be built. " + " | ".join(errors))
-
-
-@st.cache_resource(show_spinner=False)
-def railway_db() -> dict:
-    """Build (or just find) the railway database in a background thread, once per server process,
-    starting with the first page anyone opens.
-
-    Only the journey planner, the recorded-journey check and the Data page need it; the scan
-    page reads the same stations, timetable and train numbers from the committed files, so it
-    never waits. The build starts after the scanner models are loaded and runs at low CPU
-    priority, so it does not slow down pages or scans. Status: {"done", "error", "thread"}.
-    """
-    import threading
-    import time
-    status = {"done": False, "error": None}
-
-    def run():
-        try:
-            from src.database.app_data import data_ready
-            if not data_ready():                  # already built: done at once
-                scanner = warm_up_scanner() if cnn_status()[0] else {"done": True}
-                for _ in range(300):              # let the scanner load first (normally ~20-40 s)
-                    if scanner["done"]:
-                        break
-                    time.sleep(1)
-                try:                              # Linux: lower this thread's CPU priority
-                    os.setpriority(os.PRIO_PROCESS, threading.get_native_id(), 15)
-                except (AttributeError, OSError):
-                    pass
-            _build_railway_db()
-        except Exception as exc:
-            status["error"] = f"{type(exc).__name__}: {exc}"
-        finally:
-            status["done"] = True
-
-    status["thread"] = threading.Thread(target=run, name="railscan-database", daemon=True)
-    status["thread"].start()
-    return status
-
-
-def railway_db_ready() -> bool:
-    s_ = railway_db()
-    return s_["done"] and not s_["error"]
-
-
-def wait_for_railway_db() -> None:
-    """For pages that need the recorded journeys: wait for the build, or show why it failed."""
-    s_ = railway_db()
-    if not s_["done"]:
-        with st.spinner("Preparing the journey data after a server restart (once, a few minutes). "
-                        "Scanning works meanwhile."):
-            s_["thread"].join()
-    if s_["error"]:
-        st.error(s_["error"])
-        if st.button("Try again"):
-            railway_db.clear()
-            st.rerun()
-        st.caption("If it keeps failing, send this message (it names the cause).")
-        st.stop()
+    return data_ready()
 
 
 @st.cache_data(show_spinner=False, max_entries=16)
 def train_data(train_no: str) -> pd.DataFrame:
     """One train's observations (the whole table is too large to keep in memory)."""
-    return load_master(train_no=train_no)
+    if full_database():
+        return load_master(train_no=train_no)
+    from src.database.on_demand import load_train
+    return load_train(train_no)
 
 
 @st.cache_data(show_spinner=False)
 def get_trains() -> pd.DataFrame:
     """train_no, train_name, journeys, rows for every train in the dataset.
 
-    While the database is still being built, read from the committed Parquet copy of the
-    same dataset (identical result, under a second), so a scan never waits for the build.
+    Without the full database: from the committed Parquet copy of the same dataset
+    (identical result, under a second).
     """
-    from src.database.app_data import data_ready, train_list_db, train_list_parquet
-    return train_list_db() if railway_db_ready() and data_ready() else train_list_parquet()
+    from src.database.app_data import train_list_db, train_list_parquet
+    return train_list_db() if full_database() else train_list_parquet()
 
 
 @st.cache_data(show_spinner="Summarising the dataset ...")
 def get_overview() -> dict:
-    from src.database.app_data import data_ready, overview_db
-    if data_ready():
+    from src.database.app_data import overview_db, overview_files
+    if full_database():
         return {**overview_db(), "source": "SQLite"}
-    df = load_master()
-    return {"overview": dataset_overview(df), "missing": missing_summary(df),
-            "delays": df.next_station_arrival_delay_min, "source": "CSV",
-            "risk": df.next_delay_risk_label.value_counts().to_dict()}
+    return {**overview_files(), "source": "Parquet"}
 
 
 @st.cache_resource(show_spinner=False)
@@ -314,7 +233,7 @@ def get_ocr():
 def get_matcher():
     from src.railway import StationMaster, StationMatcher
     # the station CSVs hold the same stations as the database (which is built from them)
-    return StationMatcher(StationMaster.load(prefer_database=railway_db_ready()))
+    return StationMatcher(StationMaster.load(prefer_database=full_database()))
 
 
 @st.cache_data(show_spinner=False)
@@ -443,7 +362,6 @@ def page_auth() -> None:
 # the time that person has logged in or created an account
 if cnn_status()[0]:
     warm_up_scanner()
-railway_db()
 
 if current_user() is None:
     page_auth()
@@ -647,7 +565,7 @@ def show_scan(scan: dict) -> None:
         return
     from src.database.repository import get_station_by_code
     try:
-        details = get_station_by_code(chosen["station_code"]) if railway_db_ready() else None
+        details = get_station_by_code(chosen["station_code"]) if full_database() else None
     except Exception:
         details = None
     name = (details or {}).get("station_name") or chosen["station_name"]
@@ -722,7 +640,6 @@ def clock(ts, journey_date) -> str:
 
 
 def page_planner() -> None:
-    wait_for_railway_db()
     st.markdown("Pick a train, a travel date (today, a future date or a past one) and the station the train is "
                 "at or leaving. If you know how late it is, RailScan estimates the delay at the next stop and "
                 "along the rest of the route. Otherwise it shows how late this train usually was.")
@@ -1040,7 +957,6 @@ def show_typical(t: pd.DataFrame, jd) -> None:
 
 # ================================================================= RECORDED-JOURNEY CHECK
 def page_replay() -> None:
-    wait_for_railway_db()
     st.markdown("Pick a journey that was actually recorded and a stop on it. RailScan predicts the next stop as "
                 "if it were that moment, and shows what really happened.")
     trains = get_trains()
@@ -1186,14 +1102,19 @@ def show_analysis(res: dict, j: pd.DataFrame) -> None:
 
 # ================================================================= DATA
 def page_data() -> None:
-    wait_for_railway_db()
     info = get_overview()
     ov = info["overview"]
     section("Railway dataset", "recorded")
     src = info["source"]
     from src.database.connection import resolve_db_path
-    st.caption(f"Read from the SQLite database ({resolve_db_path()})." if src == "SQLite" else
-               "Read from the processed CSV files. Run `python scripts/setup_database.py all` to use SQLite.")
+    if src == "SQLite":
+        st.caption(f"Read from the SQLite database ({resolve_db_path()}).")
+    else:
+        st.caption("Figures exported from the full database (data/processed/dataset_overview.json); each train's "
+                   "rows are read from the committed Parquet file when needed.")
+        if info.get("stale"):
+            st.warning("The dataset file changed after these figures were exported. Run "
+                       "`python scripts/setup_database.py all` and `python scripts/setup_database.py export-overview`.")
     c = st.columns(4)
     c[0].metric("Observations", f"{ov['rows']:,}")
     c[1].metric("Journeys", f"{ov['journeys']:,}")

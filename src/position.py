@@ -32,9 +32,10 @@ def timeline(tt_route: pd.DataFrame, start_code: str, departure: pd.Timestamp,
     for c in ("latitude", "longitude"):
         if c not in tt_route.columns:
             tt_route[c] = np.nan
-    for code, (lat, lon) in (fallback_coords or {}).items():
+    fallback_coords = fallback_coords or {}
+    for code in set(tt_route.station_code) & set(fallback_coords):     # only this route's stations
         gap = (tt_route.station_code == code) & tt_route.latitude.isna()
-        tt_route.loc[gap, ["latitude", "longitude"]] = [lat, lon]
+        tt_route.loc[gap, ["latitude", "longitude"]] = list(fallback_coords[code])
     coords = tt_route.set_index("station_code")[["latitude", "longitude", "station_name"]]
     coords = coords[~coords.index.duplicated()]
     halts = tt_route.set_index("station_code")["halt_min"]

@@ -431,7 +431,7 @@ Last run (2026-10-30, Windows 11, Python 3.11.9): **349 passed, 6 skipped**.
 ## 15. Deployment (external database and hosting)
 Full step-by-step guide: **[docs/HOSTING.md](docs/HOSTING.md)**. In short:
 1. **Database.** Create a PostgreSQL database (for example Supabase or Neon) and copy its connection string (`postgresql://...?sslmode=require`). RailScan creates its account tables itself.
-2. **Railway data.** Stays in SQLite. On a new server the app builds it from the committed `RailScan_Final_Dataset.parquet` (45 MB) on first start, in the background (about 4–5 minutes; scanning works meanwhile, the planner waits). The large CSVs are git-ignored (above GitHub's 100 MB file limit).
+2. **Railway data.** Stays in SQLite where it is built (`python scripts/setup_database.py all`, which also exports `data/processed/dataset_overview.json`). A new server does not build it: each train is imported from the committed `RailScan_Final_Dataset.parquet` (45 MB) when first needed (about 0.4 s, same rows), and the Data page uses the exported overview. After changing the dataset, run `setup_database.py all` and commit the new overview file (a test checks that it matches the Parquet file). The large CSVs are git-ignored (above GitHub's 100 MB file limit).
 3. **Local test.** Run `$env:RAILSCAN_ACCOUNTS_DB_URL = "postgresql://..."` and then `streamlit run app.py`. My history should say "stored in PostgreSQL at …".
 4. **GitHub.** Push the repository. `.gitignore` keeps the SQLite file, large CSVs, raw data and secrets out.
 5. **Host.**
