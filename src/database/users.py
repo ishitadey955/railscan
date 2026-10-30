@@ -16,6 +16,9 @@ Security choices
     * History rows belong to one user; every query filters by user id, and
       deleting an account deletes its history (ON DELETE CASCADE).
     * All SQL is parameterised.
+    * Expensive or abusable actions (scans, sign-ups) are rate limited with
+      take_quota(); the counters live in the database, so they hold across
+      restarts and across server processes.
 
 History stores what RailScan showed (a short summary plus JSON details),
 never the uploaded image itself.
@@ -39,10 +42,14 @@ MIN_PASSWORD_LEN = 8
 MAX_PASSWORD_LEN = 128
 MAX_FAILED_ATTEMPTS = 5
 LOCKOUT_WINDOW_MIN = 15
+LOGIN_ATTEMPTS_KEPT_DAYS = 30
 HISTORY_KINDS = ("scan", "forecast", "typical", "replay")
 # scrypt cost parameters (n=2**14, r=8, p=1: ~16 MB, well under OpenSSL's default memory limit)
 SCRYPT_N, SCRYPT_R, SCRYPT_P = 2 ** 14, 8, 1
 LOGIN_FAILED = "Incorrect username or password."
+# Rate limits: kind -> (allowed actions, window in minutes). A scan costs ~20 s of full CPU on a
+# small host, so a burst of scans can get the whole app throttled for everyone.
+RATE_LIMITS = {"scan": (10, 10), "signup": (5, 60)}
 
 
 class AccountError(ValueError):
@@ -154,6 +161,10 @@ def authenticate(username: str, password: str, db_path: Optional[PathLike] = Non
         with db.transaction():
             db.run("INSERT INTO login_attempts (username, attempted_at, success) VALUES (?, ?, ?)",
                    (username, _now(), int(ok)))
+            # the lockout needs only the last minutes; older attempts are not kept (data minimisation)
+            db.run("DELETE FROM login_attempts WHERE attempted_at < ?",
+                   ((datetime.now(timezone.utc) - timedelta(days=LOGIN_ATTEMPTS_KEPT_DAYS))
+                    .isoformat(timespec="seconds"),))
             if ok:
                 db.run("UPDATE users SET last_login_at = ? WHERE id = ?", (_now(), row["id"]))
         if not ok:
@@ -189,6 +200,44 @@ def delete_user(user_id: int, password: str, db_path: Optional[PathLike] = None)
         with db.transaction():
             db.run("DELETE FROM users WHERE id = ?", (row["id"],))      # history cascades
             db.run("DELETE FROM login_attempts WHERE lower(username) = lower(?)", (row["username"],))
+
+
+def export_user_data(user_id: int, db_path: Optional[PathLike] = None) -> Dict[str, Any]:
+    """Everything RailScan stores about a user (for "Download my data"); never the password hash."""
+    user = get_user(user_id, db_path)
+    if user is None:
+        raise AccountError("Account not found.")
+    return {"account": user, "history": list_history(user_id, limit=1_000_000, db_path=db_path),
+            "exported_at": _now()}
+
+
+# ------------------------------------------------------------------ rate limits
+def take_quota(subject: str, kind: str, db_path: Optional[PathLike] = None, *,
+               limit: Optional[int] = None, window_min: Optional[int] = None) -> None:
+    """Count one ``kind`` action for ``subject`` ('user:<id>' or 'ip:<address>'), or refuse it.
+
+    Raises AccountError (safe to show) when ``limit`` actions already happened within the last
+    ``window_min`` minutes; a refused action is not counted. Defaults come from RATE_LIMITS.
+    """
+    default_limit, default_window = RATE_LIMITS[kind]
+    limit = default_limit if limit is None else limit
+    window_min = default_window if window_min is None else window_min
+    now = datetime.now(timezone.utc)
+    since = (now - timedelta(minutes=window_min)).isoformat(timespec="seconds")
+    with open_store(db_path) as db:
+        with db.transaction():
+            rows = db.all("SELECT created_at FROM usage_events WHERE subject = ? AND kind = ? AND created_at > ? "
+                          "ORDER BY created_at", (subject, kind, since))
+            if len(rows) >= limit:
+                oldest = datetime.fromisoformat(rows[0]["created_at"])
+                wait = max(1, int((oldest + timedelta(minutes=window_min) - now).total_seconds() // 60) + 1)
+                raise AccountError(f"Limit reached: {limit} {kind}s per {window_min} minutes. "
+                                   f"Please try again in about {wait} minute{'s' if wait != 1 else ''}.")
+            db.run("INSERT INTO usage_events (subject, kind, created_at) VALUES (?, ?, ?)",
+                   (subject, kind, now.isoformat(timespec="seconds")))
+            # keep the table small: events older than a day no longer count anywhere
+            db.run("DELETE FROM usage_events WHERE created_at < ?",
+                   ((now - timedelta(days=1)).isoformat(timespec="seconds"),))
 
 
 # ------------------------------------------------------------------ history

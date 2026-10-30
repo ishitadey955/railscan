@@ -1,0 +1,14 @@
+# Secret scanning (CI job "secrets"): gitleaks' default rules, minus the documentation
+# placeholders and test fixtures below, which only look like credentials.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Placeholders in docs and tests"
+regexes = [
+  '''db\.example\.com''',
+  '''ep-example-123456''',
+  '''postgres\.abcdefghijkl''',
+  '''<password>''',
+  '''\[?YOUR-PASSWORD\]?''',
+]

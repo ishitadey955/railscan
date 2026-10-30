@@ -52,6 +52,12 @@ PG_DDL = [
         attempted_at TEXT NOT NULL,
         success      INTEGER NOT NULL CHECK (success IN (0, 1)))""",
     "CREATE INDEX IF NOT EXISTS idx_login_attempts_user ON login_attempts (lower(username), attempted_at)",
+    """CREATE TABLE IF NOT EXISTS usage_events (
+        id         BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        subject    TEXT NOT NULL,
+        kind       TEXT NOT NULL,
+        created_at TEXT NOT NULL)""",
+    "CREATE INDEX IF NOT EXISTS idx_usage_events_subject ON usage_events (subject, kind, created_at)",
 ]
 
 

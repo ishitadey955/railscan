@@ -7,7 +7,13 @@ textColor = "#1f2328"
 font = "sans serif"
 
 [server]
-maxUploadSize = 10
+maxUploadSize = 10              # MB; enforced by the server, not only by the upload widget
+enableXsrfProtection = true     # the default, stated so it is not switched off by accident
+
+[client]
+# visitors see only the error type and a generic message; full messages and tracebacks go to
+# the server log (Manage app -> Logs), never to the browser
+showErrorDetails = "type"
 
 [browser]
 gatherUsageStats = false

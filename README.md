@@ -485,3 +485,11 @@ reports/                   cnn_evaluation*.json, ocr_evaluation.json, figures/, 
 tests/                     pytest suite
 docs/                      DATABASE.md, PROJECT_REPORT.md
 ```
+
+## Operations and design docs
+
+- `CLAUDE.md` / `AGENTS.md`: project rules and commands for coding agents (and people)
+- `docs/system-design.md`, `docs/architecture.md`, `docs/decisions/`: what RailScan is and why it is built this way
+- `docs/runbooks/`: deploy, roll back, back up and restore accounts, handle an incident
+- `docs/security/threat-model.md`, `docs/monitoring.md`
+- CI (`.github/workflows/ci.yml`): lint, tests and a secret scan on every push; deploy only when it is green

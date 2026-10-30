@@ -23,7 +23,7 @@ import json
 import sys
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Sequence
 
 import numpy as np
 import pandas as pd

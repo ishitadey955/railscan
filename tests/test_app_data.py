@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from src.database.app_data import data_ready
-from src.railscan_service import DataUnavailable, load_master
+from src.railscan_service import MASTER_CSV, DataUnavailable, load_master
 from src.timetable import load_timetable
 
 needs_db = pytest.mark.skipif(not data_ready(), reason="SQLite database not built (setup_database.py all)")
@@ -60,4 +60,5 @@ def test_sqlite_requested_but_empty_database_is_a_clear_error(tmp_path, monkeypa
     monkeypatch.setenv("RAILSCAN_DB_PATH", str(tmp_path / "empty.db"))
     with pytest.raises(DataUnavailable, match="setup_database.py all"):
         load_master(source="sqlite")
-    assert load_master(train_no="12229").attrs["source"] == "CSV"     # auto falls back to the CSV
+    if MASTER_CSV.exists():         # git-ignored (hundreds of MB): not in a fresh clone or CI
+        assert load_master(train_no="12229").attrs["source"] == "CSV"     # auto falls back to the CSV

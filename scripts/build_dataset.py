@@ -239,7 +239,6 @@ def _next_regular_ok(cur: pd.DataFrame) -> pd.Series:
 def process_journey(rows: List[dict], log: FilterLog) -> Optional[pd.DataFrame]:
     """Turn the stop rows of ONE journey into current->next observations."""
     df = pd.DataFrame(rows)
-    n0 = len(df)
 
     # -- basic validity of identifiers -------------------------------------
     df["train_no"] = (df["train_no"].astype(str).str.strip()

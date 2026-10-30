@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-import numpy as np
 import pandas as pd
 
 STOP_TOLERANCE_MIN = 2      # a stop is "reliable" if |actual - scheduled| <= 2 min

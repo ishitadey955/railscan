@@ -8,7 +8,6 @@ saved pipelines so training and serving share exactly the same code).
 from __future__ import annotations
 
 import re
-import sys
 from pathlib import Path
 from typing import Dict, List
 

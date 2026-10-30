@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 import src.ocr.ocr_engine as oe
-from src.ocr import OCRConfig, OCREngine, STATUS_FAILED, STATUS_OK
+from src.ocr import OCREngine, STATUS_FAILED, STATUS_OK
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL = ROOT / "models" / "language_classifier.keras"

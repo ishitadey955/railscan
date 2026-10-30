@@ -29,6 +29,8 @@ reports/ocr_evaluation_rows.csv
 # Secrets (database passwords) - never commit
 .streamlit/secrets.toml
 .env
+# account backups (scripts/backup_accounts.py) contain password hashes
+backups/
 
 # Large processed files (hundreds of MB; above GitHub's 100 MB limit). They are rebuilt by
 # scripts/build_northern_dataset.py; RailScan_Final_Dataset.parquet (same rows) is committed

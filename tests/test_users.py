@@ -29,7 +29,7 @@ def db(request, tmp_path):
     url = request.getfixturevalue("pg_url")
     import psycopg
     with psycopg.connect(url, autocommit=True) as c:          # fresh tables for every test
-        c.execute("DROP TABLE IF EXISTS user_history, login_attempts, users CASCADE")
+        c.execute("DROP TABLE IF EXISTS user_history, login_attempts, usage_events, users CASCADE")
     accounts_store._READY.discard(url)
     return url
 
@@ -175,3 +175,46 @@ def test_backend_selection(monkeypatch, tmp_path):
     monkeypatch.setenv(accounts_store.ENV_URL, "postgresql://u:secret@db.example.com:5432/railscan?sslmode=require")
     assert accounts_store.target(None) == "postgres"
     assert accounts_store.describe(None) == "PostgreSQL at db.example.com:5432"      # no password shown
+
+
+# ------------------------------------------------------------------ rate limits and data export
+def test_quota_refuses_beyond_the_limit_and_does_not_count_refusals(db):
+    for _ in range(3):
+        u.take_quota("user:1", "scan", db, limit=3, window_min=10)
+    with pytest.raises(u.AccountError, match="Limit reached"):
+        u.take_quota("user:1", "scan", db, limit=3, window_min=10)
+    assert _scalar(db, "SELECT COUNT(*) FROM usage_events WHERE subject = 'user:1'") == 3
+
+
+def test_quota_is_per_subject_and_per_kind(db):
+    u.take_quota("user:1", "scan", db, limit=1, window_min=10)
+    u.take_quota("user:2", "scan", db, limit=1, window_min=10)          # another user
+    u.take_quota("user:1", "signup", db, limit=1, window_min=10)        # another kind
+    with pytest.raises(u.AccountError):
+        u.take_quota("user:1", "scan", db, limit=1, window_min=10)
+
+
+def test_quota_window_expires(db):
+    with open_store(db) as s:
+        with s.transaction():
+            s.run("INSERT INTO usage_events (subject, kind, created_at) VALUES (?, ?, ?)",
+                  ("ip:1.2.3.4", "signup", "2000-01-01T00:00:00+00:00"))
+    u.take_quota("ip:1.2.3.4", "signup", db, limit=1, window_min=60)     # the old event no longer counts
+
+
+def test_export_contains_account_and_history_but_no_password_hash(db):
+    user = u.create_user("exporter", "Exporter123", "Ex", db)
+    u.add_history(user["id"], "scan", "a scan", {"x": 1}, db)
+    data = u.export_user_data(user["id"], db)
+    assert data["account"]["username"] == "exporter" and "password_hash" not in data["account"]
+    assert [h["summary"] for h in data["history"]] == ["a scan"]
+
+
+def test_old_login_attempts_are_not_kept(db):
+    with open_store(db) as s:
+        with s.transaction():
+            s.run("INSERT INTO login_attempts (username, attempted_at, success) VALUES (?, ?, ?)",
+                  ("someone", "2000-01-01T00:00:00+00:00", 0))
+    with pytest.raises(u.AccountError):
+        u.authenticate("nobody", "Wrongpass1", db)
+    assert _scalar(db, "SELECT COUNT(*) FROM login_attempts WHERE attempted_at < '2001'") == 0

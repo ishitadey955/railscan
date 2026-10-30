@@ -42,6 +42,7 @@ def _forget_railscan_modules() -> None:
 
 for _attempt in (1, 2):
     try:
+        from src.app_logging import get_logger
         from src.database import accounts_store
         from src.database import users as accounts
         from src.database.users import AccountError
@@ -77,6 +78,15 @@ NOTICE = ("RailScan covers trains that stop in **northern India** (J&K, Ladakh, 
           "**recorded journeys** and the delay you enter. RailScan has **no live train status**. Check official "
           "Indian Railways sources before travelling.")
 
+PRIVACY = ("- **Account:** username, optional display name, a salted scrypt hash of your password (never the "
+           "password itself), when the account was created and last used.\n"
+           "- **History:** the results RailScan showed you (scans, delay estimates), so you can look them up "
+           "again. Uploaded photos are **never** stored.\n"
+           "- **Security records:** log-in attempts (kept 30 days, to block password guessing) and usage "
+           "counts (kept one day, to limit scans and sign-ups).\n"
+           "- **Your control:** download everything with *Download my data*; deleting your account deletes "
+           "its history too.")
+
 st.set_page_config(page_title="RailScan", layout="wide")
 
 # Hosted deployments keep the accounts database address in Streamlit secrets
@@ -86,6 +96,26 @@ try:
         os.environ.setdefault("RAILSCAN_ACCOUNTS_DB_URL", str(st.secrets["RAILSCAN_ACCOUNTS_DB_URL"]))
 except Exception:  # no secrets file: local SQLite accounts
     pass
+LOG = get_logger("railscan.app")
+
+
+def _session_id() -> str:
+    """Streamlit's id of this browser session, to follow one visitor's requests through the logs."""
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        return get_script_run_ctx().session_id[:8]
+    except Exception:
+        return "-"
+
+
+# Fail loudly at start-up on a malformed setting instead of failing later on a user's click.
+_accounts_url = os.environ.get("RAILSCAN_ACCOUNTS_DB_URL", "").strip()
+if _accounts_url and not _accounts_url.startswith(("postgresql://", "postgres://")):
+    LOG.error("invalid RAILSCAN_ACCOUNTS_DB_URL", extra={"event": "config_invalid"})
+    st.error("Configuration error: RAILSCAN_ACCOUNTS_DB_URL must start with postgresql:// "
+             "(Streamlit: Manage app -> Settings -> Secrets). Leave it unset to keep accounts in the local "
+             "SQLite file.")
+    st.stop()
 st.markdown("""
 <style>
   .block-container {padding-top: 2rem; max-width: 1200px;}
@@ -195,6 +225,7 @@ def warm_up_scanner() -> dict:
             preload_readers([language_candidates(s_)[0] for s_ in SCRIPTS])
         except Exception as exc:      # the scan itself reports what is missing
             status["error"] = f"{type(exc).__name__}: {exc}"
+            LOG.error("scanner warm-up failed", exc_info=True, extra={"event": "warmup_failed"})
         finally:
             _release_free_memory()
             status["seconds"] = round(time.monotonic() - started, 1)
@@ -310,8 +341,10 @@ def record(kind: str, summary: str, details: dict) -> None:
         return
     try:
         accounts.add_history(user["id"], kind, summary, details)
-    except Exception as exc:  # database locked / missing: show it, keep the result on screen
-        st.warning(f"Could not save this to your history ({type(exc).__name__}: {exc}).")
+    except Exception:  # database unreachable: keep the result on screen, details go to the log
+        LOG.error("history save failed", exc_info=True,
+                  extra={"event": "history_save_failed", "user_id": user["id"], "session": _session_id()})
+        st.warning("This result could not be saved to your history right now. It is still shown below.")
 
 
 def page_auth() -> None:
@@ -329,9 +362,12 @@ def page_auth() -> None:
                 if st.form_submit_button("Log in", type="primary"):
                     try:
                         st.session_state.user = accounts.authenticate(username, password)
+                        LOG.info("login", extra={"event": "login", "user_id": st.session_state.user["id"],
+                                                 "session": _session_id()})
                         st.session_state.page = PAGES[0]
                         st.rerun()
                     except AccountError as exc:
+                        LOG.info("login refused", extra={"event": "login_refused", "session": _session_id()})
                         st.error(str(exc))
         with tab_up:
             with st.form("signup_form"):
@@ -348,7 +384,12 @@ def page_auth() -> None:
                         st.error("The two passwords do not match.")
                     else:
                         try:
+                            ip = getattr(st.context, "ip_address", None)
+                            if ip:      # sign-up spam: a few new accounts per address and hour
+                                accounts.take_quota(f"ip:{ip}", "signup")
                             st.session_state.user = accounts.create_user(username, password, display)
+                            LOG.info("signup", extra={"event": "signup", "user_id": st.session_state.user["id"],
+                                                      "session": _session_id()})
                             st.session_state.page = PAGES[0]
                             st.rerun()
                         except AccountError as exc:
@@ -356,6 +397,8 @@ def page_auth() -> None:
         st.caption("Your password is stored only as a salted scrypt hash. History keeps the results "
                    "RailScan showed you, never your photos.")
         st.caption(NOTICE)
+        with st.expander("What RailScan stores"):
+            st.markdown(PRIVACY)
 
 
 # the scanner models start loading with the first page anyone opens, so they are ready by
@@ -413,15 +456,26 @@ def page_scan() -> None:
         st.image(cnn_input, caption=f"CNN input ({size} x {size}, aspect ratio kept)", width=180)
 
     if st.button("Scan image", type="primary", disabled=not cnn_ok):
+        user = current_user()
+        try:        # a scan is ~20 s of full CPU; a burst could get the whole app throttled
+            accounts.take_quota(f"user:{user['id']}", "scan")
+        except AccountError as exc:
+            st.warning(str(exc))
+            return
         get_cnn()
         with st.spinner("Classifying script and reading text..."):
             try:
                 st.session_state.scan = run_scan(data)
                 st.session_state.scan["file"] = up.name
                 st.session_state.scan_name = up.name
-            except Exception as exc:          # keep the page usable; show what failed
+                LOG.info("scan", extra={"event": "scan", "user_id": user["id"], "session": _session_id(),
+                                        "script": st.session_state.scan["script"]["predicted_script"]})
+            except Exception:          # keep the page usable; details go to the log
                 st.session_state.pop("scan", None)
-                st.error(f"Scan failed: {type(exc).__name__}: {exc}")
+                LOG.error("scan failed", exc_info=True,
+                          extra={"event": "scan_failed", "user_id": user["id"], "session": _session_id()})
+                st.error("The scan failed. Please try again, or try another photo. If it keeps failing, the "
+                         "app's log (Manage app -> Logs) has the details.")
         if st.session_state.get("scan") and st.session_state.get("scan_name") == up.name:
             record_scan(up.name, st.session_state.scan)
     scan = st.session_state.get("scan")
@@ -767,8 +821,10 @@ def page_history() -> None:
     choice = st.selectbox("Show", list(kinds), key="history_filter")
     try:
         items = accounts.list_history(user["id"], kind=kinds[choice])
-    except Exception as exc:
-        st.error(f"Could not read your history: {exc}")
+    except Exception:
+        LOG.error("history read failed", exc_info=True,
+                  extra={"event": "history_read_failed", "user_id": user["id"], "session": _session_id()})
+        st.error("Your history could not be loaded right now. Please reload the page in a moment.")
         return
     if not items:
         st.info("Nothing here yet. Scan a sign or get a delay estimate and it will appear here.")
@@ -800,6 +856,17 @@ def page_history() -> None:
     section("Account")
     st.caption(f"Username: {user['username']} · created {to_ist(user['created_at'])} · "
                f"stored in {accounts_store.describe()}")
+    try:
+        export = json.dumps(accounts.export_user_data(user["id"]), ensure_ascii=False, indent=1, default=str)
+        st.download_button("Download my data (JSON)", export, file_name=f"railscan_{user['username']}.json",
+                           mime="application/json",
+                           help="Your account details and your whole history, as RailScan stores them.")
+    except Exception:
+        LOG.error("data export failed", exc_info=True,
+                  extra={"event": "export_failed", "user_id": user["id"], "session": _session_id()})
+        st.caption("Your data could not be prepared for download right now.")
+    with st.expander("What RailScan stores"):
+        st.markdown(PRIVACY)
     with st.expander("Change password"):
         with st.form("pw_form", clear_on_submit=True):
             cur = st.text_input("Current password", type="password", autocomplete="current-password")

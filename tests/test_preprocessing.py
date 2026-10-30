@@ -78,3 +78,25 @@ def test_ocr_loader_accepts_uploaded_bytes():
     assert img.shape == (100, 300, 3) and img[0, 0, 2] == 255      # BGR: red in channel 2
     with pytest.raises(ImageLoadError):
         load_image(b"not an image")
+
+
+def test_huge_image_is_refused_before_decoding(monkeypatch):
+    import io
+    from PIL import Image
+    import src.image.preprocessing as pre
+    buf = io.BytesIO()
+    Image.new("RGB", (400, 300), "white").save(buf, "PNG")
+    monkeypatch.setattr(pre, "MAX_PIXELS", 100_000)          # 400 x 300 = 120,000 pixels
+    with pytest.raises(pre.InvalidImageError, match="too large"):
+        pre.load_rgb(buf.getvalue())
+
+
+def test_decompression_bomb_is_a_clean_error(monkeypatch):
+    import io
+    from PIL import Image
+    import src.image.preprocessing as pre
+    buf = io.BytesIO()
+    Image.new("RGB", (400, 300), "white").save(buf, "PNG")
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 10_000)   # Pillow's own limit, hit at 2x
+    with pytest.raises(pre.InvalidImageError):
+        pre.load_rgb(buf.getvalue())

@@ -24,6 +24,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 IMG_SIZE = 128
 PAD_VALUE = 128          # neutral grey padding
 MIN_SIDE = 8             # anything smaller is not a usable photo
+MAX_PIXELS = 60_000_000  # above any phone photo; larger images are refused before decoding
 
 ImageSource = Union[str, Path, bytes, bytearray, Image.Image, np.ndarray]
 
@@ -60,8 +61,13 @@ def load_rgb(source: ImageSource) -> np.ndarray:
                 if not path.is_file():
                     raise InvalidImageError(f"file not found: {path}")
                 img = Image.open(path)
+            # the size comes from the file header: refuse huge images before decoding them
+            # (a small file can expand to gigabytes of pixels and crash a small server)
+            if img.width * img.height > MAX_PIXELS:
+                raise InvalidImageError(f"image too large: {img.width}x{img.height} px "
+                                        f"(at most {MAX_PIXELS // 1_000_000} megapixels)")
             img = ImageOps.exif_transpose(img).convert("RGB")
-        except (UnidentifiedImageError, OSError) as exc:
+        except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
             raise InvalidImageError(f"not a readable image ({exc})") from exc
         arr = np.asarray(img, dtype=np.uint8)
     if min(arr.shape[:2]) < MIN_SIDE:

@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from src.delay_prediction import DelayPredictor  # noqa: E402
 from src.planner import (feature_row, forecast, history_features, model_coverage,  # noqa: E402
                          selected_methods, typical_delays)
-from src.railscan_service import load_master  # noqa: E402
+from src.railscan_service import DataUnavailable, load_master  # noqa: E402
 from src.timetable import departure_stations, load_timetable, runs_on, schedule_on  # noqa: E402
 
 
@@ -22,8 +22,15 @@ TRAIN = "12229"
 
 
 @pytest.fixture(scope="module")
-def data():
-    return load_master(train_no=TRAIN)          # the app also works one train at a time
+def data(tmp_path_factory):
+    # the app also works one train at a time; without the full database or master CSV (a fresh
+    # clone, CI) the train comes from the committed Parquet file, as on the server (same rows,
+    # tests/test_on_demand.py)
+    try:
+        return load_master(train_no=TRAIN)
+    except DataUnavailable:
+        from src.database.on_demand import load_train
+        return load_train(TRAIN, db_path=tmp_path_factory.mktemp("trains") / "trains.db")
 
 
 @pytest.fixture(scope="module")
@@ -126,6 +133,8 @@ def test_last_stop_and_unknown_station(data, tt, predictor):
     assert forecast(data, tt, predictor, "99999", "2027-01-01", "LKO", 0)["status"] == "unknown_train"
 
 
+@pytest.mark.skipif(not (ROOT / "data" / "processed" / "train.csv").exists(),
+                    reason="train.csv is git-ignored (python scripts/build_northern_dataset.py rebuilds it)")
 def test_coverage_comes_from_training_rows_only():
     cov = model_coverage()
     tr = pd.read_csv(ROOT / "data" / "processed" / "train.csv", dtype=str,

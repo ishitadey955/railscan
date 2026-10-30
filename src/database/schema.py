@@ -30,7 +30,8 @@ from typing import Dict, List, Optional, Tuple
 
 from .connection import PathLike, connect, transaction
 
-SCHEMA_VERSION = 4          # 2: users, user_history, login_attempts; 3: timetable; 4: timetable coordinates
+SCHEMA_VERSION = 5          # 2: users, user_history, login_attempts; 3: timetable; 4: timetable coordinates;
+                            # 5: usage_events (rate limits)
 
 # ----------------------------------------------------------------------------- train_runs
 # (database column, SQL type, source column in RailScan_Final_Dataset.csv or None if derived)
@@ -200,11 +201,19 @@ CREATE TABLE IF NOT EXISTS login_attempts (
     attempted_at TEXT NOT NULL,
     success      INTEGER NOT NULL CHECK (success IN (0, 1))
 )""",
+    # ---- rate limits (schema v5): one row per limited action, e.g. a scan or a sign-up
+    "usage_events": """
+CREATE TABLE IF NOT EXISTS usage_events (
+    id         INTEGER PRIMARY KEY,
+    subject    TEXT NOT NULL,          -- 'user:<id>' or 'ip:<address>'
+    kind       TEXT NOT NULL,          -- 'scan', 'signup'
+    created_at TEXT NOT NULL
+)""",
 }
 
 # creation order respects foreign keys
 TABLE_ORDER = ["stations", "train_metadata", "database_metadata", "train_runs",
-               "users", "user_history", "login_attempts", "timetable"]
+               "users", "user_history", "login_attempts", "timetable", "usage_events"]
 
 INDEXES: List[str] = [
     "CREATE INDEX IF NOT EXISTS idx_stations_name ON stations(station_name COLLATE NOCASE)",
@@ -218,6 +227,7 @@ INDEXES: List[str] = [
     "CREATE INDEX IF NOT EXISTS idx_user_history_user ON user_history(user_id, created_at)",
     "CREATE INDEX IF NOT EXISTS idx_login_attempts_user ON login_attempts(username, attempted_at)",
     "CREATE INDEX IF NOT EXISTS idx_timetable_station ON timetable(station_code)",
+    "CREATE INDEX IF NOT EXISTS idx_usage_events_subject ON usage_events(subject, kind, created_at)",
 ]
 
 
@@ -265,6 +275,7 @@ def expected_columns() -> Dict[str, List[str]]:
         "user_history": ["id", "user_id", "created_at", "kind", "summary", "details"],
         "login_attempts": ["id", "username", "attempted_at", "success"],
         "timetable": TIMETABLE_COLUMNS,
+        "usage_events": ["id", "subject", "kind", "created_at"],
     }
 
 

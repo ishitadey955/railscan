@@ -42,7 +42,6 @@ def _journey(train_no, name, ttype, date, stops, delay_fn):
     for i in range(len(stops) - 1):
         code, sa, sd, km = stops[i]
         ncode, nsa, nsd, nkm = stops[i + 1]
-        ts = lambda hhmm: None if hhmm is None else base + pd.Timedelta(hours=int(hhmm[:2]), minutes=int(hhmm[2:]))
         sched_arr, sched_dep, next_arr = (sched_ts[i][0], sched_ts[i][1], sched_ts[i + 1][0])
         cur_delay = dep_d[i] if dep_d[i] is not None else arr_d[i]
         obs = (sched_dep if dep_d[i] is not None else sched_arr) + pd.Timedelta(minutes=cur_delay)
