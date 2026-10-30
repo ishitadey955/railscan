@@ -11,7 +11,7 @@ The account code (`src/database/users.py` via `accounts_store.py`) runs unchange
 
 ## Requirements of the host
 - **Python 3.11** and `pip install -r requirements.txt`. The file pins CPU-only PyTorch, so no GPU packages are downloaded.
-- **About 1.5 GB of RAM or more.** Measured locally, the app peaks at about 1.5 GB during a sign scan, when PyTorch, the script CNN and the four EasyOCR readers are loaded (they load in the background right after log-in). The CNN runs with Keras on the PyTorch backend, so TensorFlow is not installed on the server. A host with less memory will restart the app on the first scan.
+- **About 1.5 GB of RAM or more.** Measured locally, the app peaks at about 1.5 GB during a sign scan, when PyTorch, the script CNN and the four EasyOCR readers are loaded (they load in the background as soon as the first page is opened after a server start, and stay loaded). The CNN runs with Keras on the PyTorch backend, so TensorFlow is not installed on the server. A host with less memory will restart the app on the first scan.
 - About 3.5 GB of disk for the installed packages, about 600 MB for the railway database, plus about 330 MB for the EasyOCR models. The models download on the first scan of each script, and again after every restart on hosts without persistent disk.
 
 ---

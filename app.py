@@ -169,15 +169,21 @@ def cnn_status():
 
 
 @st.cache_resource(show_spinner=False)
-def warm_up_scanner():
-    """Start loading the CNN and the four OCR readers in a background thread (once per server
-    process) when a photo is uploaded, so the scan does not wait the full ~20 s for them (or
-    for the one-time model download on a fresh server). A scan started earlier simply waits
-    for the same load. Not done at log-in: the models need ~1 GB, which small hosts can
-    only spare when someone actually scans."""
+def warm_up_scanner() -> dict:
+    """Load the CNN and the four OCR readers in a background thread, once per server process,
+    starting with the first page anyone opens (normally the log-in page).
+
+    After a server restart this downloads the OCR models (~450 MB, once per server) and loads
+    them, which takes about as long as logging in or creating an account, so the first scan
+    does not wait. A scan started earlier waits for the same load (the loaders are locked).
+    Returns a status dict: {"done": bool, "error": str | None, "seconds": float | None}.
+    """
     import threading
+    import time
+    status = {"done": False, "error": None, "seconds": None}
 
     def run():
+        started = time.monotonic()
         try:
             from src.image.prediction import load_model
             from src.ocr import language_candidates
@@ -185,12 +191,27 @@ def warm_up_scanner():
             from src.script_evidence import SCRIPTS
             load_model()
             preload_readers([language_candidates(s_)[0] for s_ in SCRIPTS])
-        except Exception:      # the scan itself reports what is missing
-            pass
+        except Exception as exc:      # the scan itself reports what is missing
+            status["error"] = f"{type(exc).__name__}: {exc}"
+        finally:
+            _release_free_memory()
+            status["seconds"] = round(time.monotonic() - started, 1)
+            status["done"] = True
 
-    thread = threading.Thread(target=run, name="railscan-scanner-warm-up", daemon=True)
-    thread.start()
-    return thread
+    threading.Thread(target=run, name="railscan-scanner-warm-up", daemon=True).start()
+    return status
+
+
+def _release_free_memory() -> None:
+    """Loading the OCR models briefly holds float copies that are then quantised; on Linux
+    (Streamlit Cloud) glibc keeps that freed memory unless asked to return it."""
+    import gc
+    gc.collect()
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):      # not glibc (Windows, macOS): nothing to do
+        pass
 
 
 @st.cache_resource(show_spinner="Loading the scanner models (only right after the server starts)...")
@@ -334,6 +355,11 @@ def page_auth() -> None:
         st.caption(NOTICE)
 
 
+# the scanner models start loading with the first page anyone opens, so they are ready by
+# the time that person has logged in or created an account
+if cnn_status()[0]:
+    warm_up_scanner()
+
 if current_user() is None:
     page_auth()
     st.stop()
@@ -349,9 +375,8 @@ with st.sidebar:
     st.divider()
     st.caption(NOTICE)
 
-# Only the railway database is checked here (instant once built). The train list, the delay
-# models (~170 MB) and the scanner models (~1 GB) load on the pages that use them, so a page
-# never waits for, or holds memory for, another page's data.
+# Only the railway database is checked here (instant once built). The train list and the
+# delay models (~170 MB) load on the pages that use them, so the scan page never waits for them.
 try:
     ensure_railway_db()
 except (DataUnavailable, RuntimeError) as exc:
@@ -370,13 +395,14 @@ def page_scan() -> None:
     cnn_ok, cnn_err = cnn_status()
     if not cnn_ok:
         st.warning(f"Script classifier unavailable: {cnn_err}")
+    if cnn_ok and not warm_up_scanner()["done"]:
+        st.caption("⏳ The scanner is getting ready (only right after the server restarts). You can upload "
+                   "a photo now; Scan waits for it automatically.")
 
     up = st.file_uploader("Sign image (JPG or PNG, up to 10 MB)", type=["jpg", "jpeg", "png"])
     if up is None:
         st.info("No image uploaded. You can also go straight to the **Journey planner**.")
         return
-    if cnn_ok:
-        warm_up_scanner()              # loads while the user looks at the photo and presses Scan
     data = up.getvalue()
     labels = read_json(str(ROOT / "models" / "language_labels.json")) or {}
     size = int(labels.get("image_size", 128))
