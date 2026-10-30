@@ -51,7 +51,10 @@ def _label(row) -> str:
 def station_services(tt: pd.DataFrame, station_code: str) -> pd.DataFrame:
     """Scheduled calls at a station by every train in the timetable (empty if none)."""
     rows = []
-    for train_no in sorted(tt.train_no.unique()):
+    # only the trains that call here (looping over all ~5,000 routes took ~17 s for a big station)
+    callers = sorted(tt.loc[tt.station_code == station_code, "train_no"].unique())
+    tt = tt[tt.train_no.isin(callers)]
+    for train_no in callers:
         r = route(tt, train_no)
         hit = r[r.station_code == station_code]
         if hit.empty:

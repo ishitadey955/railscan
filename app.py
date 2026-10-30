@@ -171,8 +171,10 @@ def cnn_status():
 @st.cache_resource(show_spinner=False)
 def warm_up_scanner():
     """Start loading the CNN and the four OCR readers in a background thread (once per server
-    process), so the first scan does not wait ~20 s for them (or for the one-time model
-    download on a fresh server). A scan started earlier simply waits for the same load."""
+    process) when a photo is uploaded, so the scan does not wait the full ~20 s for them (or
+    for the one-time model download on a fresh server). A scan started earlier simply waits
+    for the same load. Not done at log-in: the models need ~1 GB, which small hosts can
+    only spare when someone actually scans."""
     import threading
 
     def run():
@@ -347,15 +349,15 @@ with st.sidebar:
     st.divider()
     st.caption(NOTICE)
 
+# Only the railway database is checked here (instant once built). The train list, the delay
+# models (~170 MB) and the scanner models (~1 GB) load on the pages that use them, so a page
+# never waits for, or holds memory for, another page's data.
 try:
-    TRAINS = get_trains()
+    ensure_railway_db()
 except (DataUnavailable, RuntimeError) as exc:
     st.error(str(exc))
     st.caption("Reload the page to retry. If it keeps failing, send this message (it names the cause).")
     st.stop()
-PREDICTOR, PREDICTOR_ERROR = get_predictor()
-if cnn_status()[0]:
-    warm_up_scanner()
 
 st.title("RailScan")
 st.markdown("CNN-Based Indian Railway Sign Recognition and Delay Prediction")
@@ -373,20 +375,22 @@ def page_scan() -> None:
     if up is None:
         st.info("No image uploaded. You can also go straight to the **Journey planner**.")
         return
+    if cnn_ok:
+        warm_up_scanner()              # loads while the user looks at the photo and presses Scan
     data = up.getvalue()
+    labels = read_json(str(ROOT / "models" / "language_labels.json")) or {}
+    size = int(labels.get("image_size", 128))
     try:
-        rgb = load_rgb(data)
+        (w, h), shown, cnn_input = photo_preview(data, size)
     except InvalidImageError as exc:
         st.error(f"This file could not be read as an image: {exc}")
         return
 
     c1, c2 = st.columns([3, 1])
     with c1:
-        st.image(rgb, caption=f"Original ({rgb.shape[1]} x {rgb.shape[0]} px)", width="stretch")
-    labels = read_json(str(ROOT / "models" / "language_labels.json")) or {}
-    size = int(labels.get("image_size", 128))
+        st.image(shown, caption=f"Original ({w} x {h} px)", width="stretch", output_format="JPEG")
     with c2:
-        st.image(letterbox(rgb, size), caption=f"CNN input ({size} x {size}, aspect ratio kept)", width=180)
+        st.image(cnn_input, caption=f"CNN input ({size} x {size}, aspect ratio kept)", width=180)
 
     if st.button("Scan image", type="primary", disabled=not cnn_ok):
         get_cnn()
@@ -403,6 +407,22 @@ def page_scan() -> None:
     scan = st.session_state.get("scan")
     if scan and st.session_state.get("scan_name") == up.name:
         show_scan(scan)
+
+
+@st.cache_data(show_spinner=False, max_entries=4)
+def photo_preview(data: bytes, size: int):
+    """Decoded once per photo: (width, height), a copy at most 1280 px for the page (a phone
+    photo would otherwise go to the browser as a ~9 MB PNG on every click) and the CNN input."""
+    from PIL import Image
+    rgb = load_rgb(data)
+    shown = Image.fromarray(rgb)
+    shown.thumbnail((1280, 1280))
+    return (rgb.shape[1], rgb.shape[0]), np.asarray(shown), letterbox(rgb, size)
+
+
+@st.cache_data(show_spinner=False, max_entries=64)
+def services_at(station_code: str) -> pd.DataFrame:
+    return station_services(get_timetable(), station_code)
 
 
 def record_scan(name: str, scan: dict) -> None:
@@ -432,7 +452,7 @@ def run_scan(data: bytes) -> dict:
               "cnn_probabilities": res["cnn"]["class_probabilities"]}
     ocr = res["ocr"]
     text = ocr.get("clean_text") or ""
-    numbers = summarize_ocr_numbers(TRAINS, ocr.get("train_numbers") or [])
+    numbers = summarize_ocr_numbers(get_trains(), ocr.get("train_numbers") or [])
     station = get_matcher().match(ocr) if ocr["status"] == "ok" else None
     st.session_state.scan_counter = st.session_state.get("scan_counter", 0) + 1
     return {"script": script, "ocr": ocr, "numbers": numbers, "station": station,
@@ -532,7 +552,7 @@ def show_scan(scan: dict) -> None:
     st.markdown(f"**{name}** · station code **{chosen['station_code']}**"
                 + (f" · {details['latitude']:.4f}, {details['longitude']:.4f}"
                    if details and details.get("latitude") is not None else ""))
-    services = station_services(get_timetable(), chosen["station_code"])
+    services = services_at(chosen["station_code"])
     if services.empty:
         st.info(f"No train in RailScan's timetable calls at {name}. RailScan covers trains that stop in "
                 "northern India or West Bengal, so services elsewhere are not shown.")
@@ -603,8 +623,10 @@ def page_planner() -> None:
     st.markdown("Pick a train, a travel date (today, a future date or a past one) and the station the train is "
                 "at or leaving. If you know how late it is, RailScan estimates the delay at the next stop and "
                 "along the rest of the route. Otherwise it shows how late this train usually was.")
-    if PREDICTOR_ERROR:
-        st.warning(f"Delay model unavailable: {PREDICTOR_ERROR}")
+    with st.spinner("Loading the delay models ..."):
+        predictor, predictor_error = get_predictor()
+    if predictor_error:
+        st.warning(f"Delay model unavailable: {predictor_error}")
     try:
         tt = get_timetable()
     except TimetableUnavailable as exc:
@@ -653,10 +675,10 @@ def page_planner() -> None:
         if runs_on(tt, train_no, sjd) is False:
             st.warning(f"Train {train_no} has not run on a {pd.Timestamp(sjd):%A} in recent records.")
         if with_delay:
-            if PREDICTOR is None:
+            if predictor is None:
                 st.info("No estimate without the delay model.")
             else:
-                f = forecast(train_data(train_no), tt, PREDICTOR, train_no, sjd, shown["station_code"], shown["current_delay_min"],
+                f = forecast(train_data(train_no), tt, predictor, train_no, sjd, shown["station_code"], shown["current_delay_min"],
                              now=now_ist(), covered=get_coverage())
                 show_forecast(f, sjd)
                 if f["status"] == "ok":
@@ -917,7 +939,8 @@ def show_typical(t: pd.DataFrame, jd) -> None:
 def page_replay() -> None:
     st.markdown("Pick a journey that was actually recorded and a stop on it. RailScan predicts the next stop as "
                 "if it were that moment, and shows what really happened.")
-    trains = TRAINS
+    trains = get_trains()
+    predictor, _ = get_predictor()
     labels = {r.train_no: f"{r.train_no} - {r.train_name} ({r.journeys} recorded journeys)"
               for r in trains.itertuples()}
     c1, c2, c3 = st.columns([2, 1, 2])
@@ -939,7 +962,7 @@ def page_replay() -> None:
         override = st.number_input("Current delay in minutes (negative = early)", -60, 600, 20, step=5,
                                    key="replay_delay")
 
-    res = analyze(data, PREDICTOR, train_no, jd, pick["code"], seq=pick["seq"], delay_override=override)
+    res = analyze(data, predictor, train_no, jd, pick["code"], seq=pick["seq"], delay_override=override)
     if res["status"] != "ok":
         st.error(res["message"])
         return
