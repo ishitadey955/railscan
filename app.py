@@ -755,7 +755,13 @@ def show_scan(scan: dict) -> None:
             st.code(ocr["raw_text"], language=None)
     else:
         c1, c2, c3 = st.columns(3)
-        c1.metric("OCR confidence", "-" if ocr.get("ocr_confidence") is None else f"{ocr['ocr_confidence']:.0f} / 100")
+        if ocr.get("ocr_confidence") is None and ocr.get("model_certainty") is not None:
+            c1.metric("Gemini certainty", f"{ocr['model_certainty']:.0f} / 100",
+                      help="Gemini's own estimate of how probable its answer is (average token probability). "
+                           "Gemini gives no OCR confidence score; this number is not calibrated like one.")
+        else:
+            c1.metric("OCR confidence", "-" if ocr.get("ocr_confidence") is None else f"{ocr['ocr_confidence']:.0f} / 100",
+                      help=None if ocr.get("ocr_confidence") is not None else "This engine gives no confidence score.")
         c2.metric("Read as", read_as(ocr))
         engine = {"google": "Google Cloud Vision", "gemini": f"Gemini ({ocr.get('ocr_model', '')})"}
         c3.metric("Engine", engine.get(ocr.get("ocr_backend"), "EasyOCR"))

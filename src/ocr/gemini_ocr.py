@@ -11,7 +11,10 @@ answers in a fixed JSON shape; it is returned in the same shape as an EasyOCR re
         result = gemini_ocr.recognize(image_bytes)        # raises GeminiOCRError on any failure
 
 Notes
-    * Gemini gives no confidence score, so ``ocr_confidence`` is None.
+    * Gemini gives no OCR confidence score, so ``ocr_confidence`` is None. When the answer carries
+      ``avgLogprobs`` ("average log probability score of the candidate", API reference),
+      ``model_certainty`` = 100 x exp(avgLogprobs): Gemini's own estimate, not calibrated like an OCR
+      score (it also covers the JSON wrapper of the answer).
     * A language model can "read" a name it expects rather than what is printed; the app therefore
       never accepts a station found only in Gemini's text automatically (the user confirms it).
     * Free tier: Google states that content is used to improve its products (Gemini API pricing page,
@@ -23,6 +26,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import math
 import os
 import urllib.error
 import urllib.request
@@ -111,9 +115,12 @@ def parse(response: Dict[str, Any], model: str = DEFAULT_MODEL) -> Dict[str, Any
     numbers, station_text = split_train_numbers(clean)
     ok = bool(clean.strip())
     scripts = [str(s) for s in data.get("scripts", []) if str(s).strip()] if isinstance(data, dict) else []
+    avg = cands[0].get("avgLogprobs")
+    certainty = round(100 * math.exp(avg), 1) if isinstance(avg, (int, float)) and avg <= 0 else None
     return {
         "status": "ok" if ok else "OCR failed", "text": clean, "raw_text": raw, "clean_text": clean,
-        "ocr_confidence": None, "low_confidence": None, "ocr_language": "gemini",
+        "ocr_confidence": None, "model_certainty": certainty if ok else None, "low_confidence": None,
+        "ocr_language": "gemini",
         "ocr_backend": "gemini", "ocr_model": model, "preprocessing_method": None,
         "train_numbers": numbers if ok else [], "station_text": station_text if ok else "",
         "error": None if ok else "Gemini found no readable text in the photo.", "warnings": [],

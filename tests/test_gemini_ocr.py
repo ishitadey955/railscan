@@ -88,3 +88,11 @@ def test_photo_check_handles_a_reading_without_confidence():
     quality = {"width": 507, "height": 394, "brightness": 61, "contrast": 62, "sharpness": 853}
     adv = retake_advice(quality, reading, {"status": "possible"})
     assert not any("confidence" in r for r in adv["reasons"])
+
+
+def test_model_certainty_comes_from_avg_logprobs_when_given():
+    import math
+    ans = _answer({"lines": ["RATNAGIRI"]})
+    ans["candidates"][0]["avgLogprobs"] = math.log(0.97)
+    assert gm.parse(ans)["model_certainty"] == 97.0
+    assert gm.parse(_answer({"lines": ["RATNAGIRI"]}))["model_certainty"] is None     # not given: no number
