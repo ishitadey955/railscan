@@ -641,22 +641,26 @@ def record_scan(name: str, scan: dict) -> None:
 
 
 def google_reading(data: bytes):
-    """Google Cloud Vision's reading of the photo, or None (no key, monthly cap reached, or any failure:
-    the scan then shows EasyOCR's reading, so a scan never fails because of Google)."""
+    """(Google Cloud Vision's reading or None, a note on why Google was not used). Without a key, past
+    the monthly cap, or on any failure the scan shows EasyOCR's reading, so it never fails because of
+    Google; the note says why on the page (the reason never contains the key)."""
     from src.ocr import google_vision
     if not google_vision.available():
-        return None
+        return None, ("Google OCR is off: no GOOGLE_VISION_API_KEY in the app's Secrets "
+                      "(Manage app -> Settings -> Secrets, then reboot).")
     try:
         accounts.take_quota("app", "google_ocr")           # free tier: 1,000 photos a month
     except AccountError:
         LOG.warning("Google OCR monthly cap reached; EasyOCR used", extra={"event": "google_ocr_cap"})
-        return None
+        return None, "Google OCR's monthly limit (1,000 photos) is reached; EasyOCR read this photo."
     try:
         result = google_vision.recognize(data)
     except google_vision.GoogleOCRError as exc:
         LOG.warning("Google OCR failed; EasyOCR used", extra={"event": "google_ocr_failed", "reason": str(exc)})
-        return None
-    return result if result["status"] == "ok" else None
+        return None, f"Google OCR failed ({exc}); EasyOCR read this photo."
+    if result["status"] != "ok":
+        return None, "Google OCR found no text in this photo; EasyOCR's reading is shown."
+    return result, None
 
 
 def read_as(ocr: dict) -> str:
@@ -677,7 +681,7 @@ def run_scan(data: bytes) -> dict:
               "class_probabilities": c["probabilities"], "low_confidence": c["low_confidence"],
               "cnn_probabilities": res["cnn"]["class_probabilities"]}
     others = other_readings(res)
-    google = google_reading(data)
+    google, google_note = google_reading(data)
     if google is not None:      # Google read the text: show it; EasyOCR's reading still helps the station match
         others = [res["ocr"].get("clean_text") or ""] + others
     ocr = google or res["ocr"]
@@ -687,7 +691,7 @@ def run_scan(data: bytes) -> dict:
     # reading or in a faint reading is suggested for the user to confirm (never accepted automatically)
     station = get_matcher().match_readings(ocr, others)
     st.session_state.scan_counter = st.session_state.get("scan_counter", 0) + 1
-    return {"script": script, "ocr": ocr, "numbers": numbers, "station": station,
+    return {"script": script, "ocr": ocr, "numbers": numbers, "station": station, "google_note": google_note,
             "platforms": platform_numbers(text), "quality": measure(load_rgb(data)),
             "id": st.session_state.scan_counter}
 
@@ -724,6 +728,8 @@ def show_scan(scan: dict) -> None:
         st.caption("Devanagari is used by both Hindi and Marathi; OCR tries both.")
 
     section("Text", "OCR")
+    if scan.get("google_note"):
+        st.info(scan["google_note"])
     if ocr["status"] != "ok":
         st.error(f"No usable text found. {ocr.get('error') or ''}")
         if ocr.get("raw_text"):
