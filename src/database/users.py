@@ -49,7 +49,7 @@ SCRYPT_N, SCRYPT_R, SCRYPT_P = 2 ** 14, 8, 1
 LOGIN_FAILED = "Incorrect username or password."
 # Rate limits: kind -> (allowed actions, window in minutes). A scan costs ~20 s of full CPU on a
 # small host, so a burst of scans can get the whole app throttled for everyone.
-RATE_LIMITS = {"scan": (10, 10), "signup": (5, 60)}
+RATE_LIMITS = {"scan": (10, 10), "scan_all": (20, 10), "signup": (5, 60)}   # scan_all: the whole app
 
 
 class AccountError(ValueError):

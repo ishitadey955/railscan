@@ -41,3 +41,6 @@ data/processed/train.csv
 data/processed/validation.csv
 data/processed/test.csv
 data/raw/delay_north/
+
+# Office lock files (created while a document is open)
+~$*

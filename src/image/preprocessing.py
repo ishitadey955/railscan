@@ -68,7 +68,9 @@ def load_rgb(source: ImageSource) -> np.ndarray:
                                         f"(at most {MAX_PIXELS // 1_000_000} megapixels)")
             img = ImageOps.exif_transpose(img).convert("RGB")
         except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
-            raise InvalidImageError(f"not a readable image ({exc})") from exc
+            # the library's own text ("cannot identify image file <_io.BytesIO object at 0x...>") is not
+            # for users; the cause stays attached to the exception for the log
+            raise InvalidImageError("it is not a photo the app can open (damaged, empty or not a JPG/PNG)") from exc
         arr = np.asarray(img, dtype=np.uint8)
     if min(arr.shape[:2]) < MIN_SIDE:
         raise InvalidImageError(f"image too small: {arr.shape[1]}x{arr.shape[0]} px")

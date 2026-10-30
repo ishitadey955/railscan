@@ -20,6 +20,7 @@ import importlib
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -97,6 +98,33 @@ try:
 except Exception:  # no secrets file: local SQLite accounts
     pass
 LOG = get_logger("railscan.app")
+
+
+@st.cache_resource(show_spinner=False)
+def _limit_malloc_arenas() -> bool:
+    """Linux/glibc: at most 2 malloc arenas (M_ARENA_MAX = -8). Streamlit serves every session in its
+    own thread, and by default each thread may get its own arena that keeps freed memory, which
+    makes a multi-threaded Python process grow well past what it uses. Once per process."""
+    try:
+        import ctypes
+        return bool(ctypes.CDLL("libc.so.6").mallopt(-8, 2))
+    except (OSError, AttributeError):      # not glibc (Windows, macOS)
+        return False
+
+
+_limit_malloc_arenas()
+
+
+@st.cache_resource(show_spinner=False)
+def _log_resources() -> bool:
+    """Once per process: the memory limit the host really gives, and current use (Manage app -> Logs)."""
+    from src.resources import memory_limit_mb, memory_used_mb
+    LOG.info("resources", extra={"event": "resources", "limit_mb": memory_limit_mb(), "used_mb": memory_used_mb(),
+                                 "cpus": os.cpu_count()})
+    return True
+
+
+_log_resources()
 
 
 def _session_id() -> str:
@@ -216,7 +244,13 @@ def warm_up_scanner() -> dict:
 
     def run():
         started = time.monotonic()
+        scanner_usage()["last_used"] = started
         try:
+            from src.resources import has_room_for, memory_limit_mb, memory_used_mb
+            if not has_room_for(MODELS_MB):
+                LOG.warning("warm-up skipped: not enough memory", extra={
+                    "event": "warmup_skipped", "limit_mb": memory_limit_mb(), "used_mb": memory_used_mb()})
+                return
             from src.image.prediction import load_model
             from src.ocr import language_candidates
             from src.ocr.ocr_engine import preload_readers
@@ -235,9 +269,73 @@ def warm_up_scanner() -> dict:
     return status
 
 
+# memory measured for the scanner (docs/decisions/0003): the CNN + four OCR readers add ~1,100 MB,
+# a scan adds a few hundred MB on top while it runs
+MODELS_MB, SCAN_EXTRA_MB = 1100, 400
+SCANNER_IDLE_MIN = float(os.environ.get("RAILSCAN_SCANNER_IDLE_MIN", 10))   # unload models after this idle time
+
+
+@st.cache_resource(show_spinner=False)
+def scanner_usage() -> dict:
+    """When the scanner was last used (a scan, or the start of loading), shared by all sessions."""
+    return {"last_used": time.monotonic()}
+
+
+def unload_scanner() -> int:
+    """Free the scanner models (~1 GB): the CNN, the four OCR readers and their caches. The next
+    page view starts loading them again (warm_up_scanner), and a scan always works (it loads what
+    it needs). Returns the number of OCR readers dropped."""
+    from src.image.prediction import unload_model
+    from src.ocr.ocr_engine import unload_readers
+    for cached in (get_cnn, get_ocr, warm_up_scanner):
+        cached.clear()
+    n = unload_readers()
+    unload_model()
+    _release_free_memory()
+    return n
+
+
+@st.cache_resource(show_spinner=False)
+def idle_unloader():
+    """Background check, once per server process: when nobody has scanned for SCANNER_IDLE_MIN
+    minutes, unload the scanner models so an idle server holds little memory (small hosts stop
+    apps that keep using too much). Back-to-back scans stay fast; a scan in progress is never
+    interrupted (it holds scan_lock)."""
+    import threading
+
+    def run():
+        from src.ocr.ocr_engine import _EASYOCR_READERS
+        while True:
+            time.sleep(60)
+            idle = time.monotonic() - scanner_usage()["last_used"]
+            if idle < SCANNER_IDLE_MIN * 60 or not _EASYOCR_READERS:
+                continue
+            lock = scan_lock()
+            if lock.acquire(blocking=False):
+                try:
+                    n = unload_scanner()
+                    LOG.info("scanner unloaded", extra={"event": "scanner_unloaded", "readers": n,
+                                                        "idle_min": round(idle / 60, 1)})
+                except Exception:
+                    LOG.error("scanner unload failed", exc_info=True, extra={"event": "unload_failed"})
+                finally:
+                    lock.release()
+
+    thread = threading.Thread(target=run, name="railscan-idle-unloader", daemon=True)
+    thread.start()
+    return thread
+
+
+@st.cache_resource(show_spinner=False)
+def scan_lock():
+    """Shared by every session of this server process: scans run one after another."""
+    import threading
+    return threading.Lock()
+
+
 def _release_free_memory() -> None:
-    """Loading the OCR models briefly holds float copies that are then quantised; on Linux
-    (Streamlit Cloud) glibc keeps that freed memory unless asked to return it."""
+    """Model loading and scans briefly hold large temporary buffers; on Linux (Streamlit
+    Cloud) glibc keeps that freed memory unless asked to return it."""
     import gc
     gc.collect()
     try:
@@ -405,6 +503,7 @@ def page_auth() -> None:
 # the time that person has logged in or created an account
 if cnn_status()[0]:
     warm_up_scanner()
+    idle_unloader()
 
 if current_user() is None:
     page_auth()
@@ -446,7 +545,7 @@ def page_scan() -> None:
     try:
         (w, h), shown, cnn_input = photo_preview(data, size)
     except InvalidImageError as exc:
-        st.error(f"This file could not be read as an image: {exc}")
+        st.error(f"This file could not be used: {exc}")
         return
 
     c1, c2 = st.columns([3, 1])
@@ -457,14 +556,34 @@ def page_scan() -> None:
 
     if st.button("Scan image", type="primary", disabled=not cnn_ok):
         user = current_user()
+        from src.ocr.ocr_engine import _EASYOCR_READERS
+        from src.resources import has_room_for, memory_limit_mb, memory_used_mb
+        need = SCAN_EXTRA_MB + (0 if _EASYOCR_READERS else MODELS_MB)
+        if not has_room_for(need):          # refuse instead of being stopped by the host
+            LOG.warning("scan refused: not enough memory", extra={
+                "event": "scan_refused_memory", "user_id": user["id"], "need_mb": need,
+                "limit_mb": memory_limit_mb(), "used_mb": memory_used_mb()})
+            st.warning("The server is short on memory right now, so this scan was not started. "
+                       "Please try again in a minute.")
+            return
         try:        # a scan is ~20 s of full CPU; a burst could get the whole app throttled
+            accounts.take_quota("app", "scan_all")
+        except AccountError:
+            st.warning("RailScan is busy with many scans right now. Please try again in a few minutes.")
+            return
+        try:
             accounts.take_quota(f"user:{user['id']}", "scan")
         except AccountError as exc:
             st.warning(str(exc))
             return
-        get_cnn()
-        with st.spinner("Classifying script and reading text..."):
+        lock = scan_lock()
+        if lock.locked():
+            st.info("Another scan is running; yours starts as soon as it finishes.")
+        # one scan at a time: two at once would double the memory peak on a small host. Loading the
+        # models happens inside the lock too, so the idle unloader can never unload them mid-load.
+        with lock, st.spinner("Classifying script and reading text..."):
             try:
+                get_cnn()
                 st.session_state.scan = run_scan(data)
                 st.session_state.scan["file"] = up.name
                 st.session_state.scan_name = up.name
@@ -476,6 +595,9 @@ def page_scan() -> None:
                           extra={"event": "scan_failed", "user_id": user["id"], "session": _session_id()})
                 st.error("The scan failed. Please try again, or try another photo. If it keeps failing, the "
                          "app's log (Manage app -> Logs) has the details.")
+            finally:
+                scanner_usage()["last_used"] = time.monotonic()
+                _release_free_memory()      # hand the scan's temporary memory back to the system
         if st.session_state.get("scan") and st.session_state.get("scan_name") == up.name:
             record_scan(up.name, st.session_state.scan)
     scan = st.session_state.get("scan")
@@ -517,7 +639,7 @@ def record_scan(name: str, scan: dict) -> None:
 
 def run_scan(data: bytes) -> dict:
     from src.image.prediction import predict_script
-    from src.script_evidence import identify_script
+    from src.script_evidence import identify_script, other_readings
     # validated procedure: CNN + an OCR reading with each script, combined (scripts/evaluate_script_fusion.py)
     res = identify_script(data, predict_script, get_ocr())
     c = res["combined"]
@@ -527,7 +649,9 @@ def run_scan(data: bytes) -> dict:
     ocr = res["ocr"]
     text = ocr.get("clean_text") or ""
     numbers = summarize_ocr_numbers(get_trains(), ocr.get("train_numbers") or [])
-    station = get_matcher().match(ocr) if ocr["status"] == "ok" else None
+    # every reading counts, also when the chosen one is poor: a station seen only in another script's
+    # reading or in a faint reading is suggested for the user to confirm (never accepted automatically)
+    station = get_matcher().match_readings(ocr, other_readings(res))
     st.session_state.scan_counter = st.session_state.get("scan_counter", 0) + 1
     return {"script": script, "ocr": ocr, "numbers": numbers, "station": station,
             "platforms": platform_numbers(text), "quality": measure(load_rgb(data)),
@@ -538,8 +662,15 @@ def show_scan(scan: dict) -> None:
     s, ocr = scan["script"], scan["ocr"]
     section("Script", "CNN + OCR evidence")
     c1, c2 = st.columns([1, 2])
-    c1.metric("Detected script", s["predicted_script"])
-    c1.caption(f"{s['confidence']:.0%} confidence")
+    if ocr["status"] != "ok" and s["low_confidence"]:
+        # no text was read and the image model alone is unsure (blank, dark or very blurry photo):
+        # naming a script here would look like a finding when it is only a guess
+        c1.metric("Detected script", "Not determined")
+        c1.caption(f"No text was read. The image model's guess was {s['predicted_script']} "
+                   f"({s['confidence']:.0%}), which is not reliable on its own.")
+    else:
+        c1.metric("Detected script", s["predicted_script"])
+        c1.caption(f"{s['confidence']:.0%} confidence")
     cnn_p = s.get("cnn_probabilities") or s["class_probabilities"]
     probs = pd.DataFrame({"script": list(s["class_probabilities"]),
                           "combined": list(s["class_probabilities"].values()),
@@ -652,6 +783,9 @@ def choose_station(scan: dict):
         st.info("No station could be matched. Search by name above, or take another photo.")
         return None
     auto = not needs_confirmation(match) and match["station_code"] == opts[0]["station_code"]
+    if not auto and any((o.get("match_method") or "").endswith("other_reading") for o in opts):
+        st.caption("Some suggestions come from a faint or other-script reading of the sign: check the "
+                   "name before choosing.")
     label = lambda i: (f"{opts[i]['station_name']} ({opts[i]['station_code']}) - match "
                        f"{opts[i]['match_score']:.0f}/100" if opts[i].get("match_score") is not None
                        else f"{opts[i]['station_name']} ({opts[i]['station_code']})")

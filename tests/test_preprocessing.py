@@ -100,3 +100,11 @@ def test_decompression_bomb_is_a_clean_error(monkeypatch):
     monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 10_000)   # Pillow's own limit, hit at 2x
     with pytest.raises(pre.InvalidImageError):
         pre.load_rgb(buf.getvalue())
+
+
+def test_unreadable_file_message_is_for_people():
+    import src.image.preprocessing as pre
+    for junk in (b"", b"this is text, not a photo" * 20, _png_bytes()[:40]):
+        with pytest.raises(pre.InvalidImageError) as e:
+            pre.load_rgb(junk)
+        assert "BytesIO" not in str(e.value) and "0x" not in str(e.value)

@@ -160,6 +160,7 @@ class _Attempt:
             "language": self.language, "preprocessing_method": self.method,
             "ocr_confidence": self.confidence, "chars": self.n_chars,
             "score": round(self.score, 2), "error": self.error,
+            "text": clean_text(self.raw_text) if self.raw_text else "",   # also kept when rejected as noise
         }
 
 
@@ -233,6 +234,16 @@ def _detect(reader, image: np.ndarray) -> Tuple[list, list]:
         while len(_DETECTIONS) > 8:
             _DETECTIONS.popitem(last=False)
     return _DETECTIONS[key]
+
+
+def unload_readers() -> int:
+    """Forget every loaded reader and cached detection (the memory is freed once nothing else
+    holds them). The next OCR call loads the readers again from disk. Returns readers dropped."""
+    with _READER_LOCK:
+        n = len(_EASYOCR_READERS)
+        _EASYOCR_READERS.clear()
+        _DETECTIONS.clear()
+    return n
 
 
 def preload_readers(languages: Sequence[str]) -> None:

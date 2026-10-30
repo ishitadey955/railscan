@@ -101,7 +101,10 @@ def identify_script(image, predict, engine) -> Dict:
     cnn = predict(image)
     readings, evidence = {}, {}
     for s in SCRIPTS:
-        r = engine.recognize(image, languages=language_candidates(s)[0])
+        try:      # the attempts keep faint readings for station suggestions (other_readings)
+            r = engine.recognize(image, languages=language_candidates(s)[0], return_attempts=True)
+        except TypeError:  # an engine without that option
+            r = engine.recognize(image, languages=language_candidates(s)[0])
         readings[s] = r
         ok = r["status"] == "ok"
         evidence[s] = {"confidence": r["ocr_confidence"] if ok else 0.0,
@@ -111,3 +114,16 @@ def identify_script(image, predict, engine) -> Dict:
     chosen = {**chosen, "script": combined["script"], "script_confidence": combined["confidence"],
               "script_source": "cnn+ocr", "script_low_confidence": combined["low_confidence"]}
     return {"cnn": cnn, "combined": combined, "readings": readings, "ocr": chosen}
+
+
+def other_readings(result: Dict) -> list:
+    """Every text the OCR saw in this photo besides the chosen reading: the readings with the other
+    scripts, and the attempts it rejected as too uncertain (for station suggestions only)."""
+    chosen = (result["ocr"].get("clean_text") or "").strip()
+    texts = []
+    for r in result["readings"].values():
+        for t in [r.get("clean_text") or ""] + [a.get("text") or "" for a in r.get("attempts") or []]:
+            t = t.strip()
+            if t and t != chosen and t not in texts:
+                texts.append(t)
+    return texts

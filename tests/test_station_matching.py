@@ -302,3 +302,95 @@ def test_bengali_script_is_detected_and_transliterated():
     from src.railway.text_normalizer import detect_script, transliterate_to_latin
     assert detect_script("বর্ধমান") == "bengali"
     assert transliterate_to_latin("বর্ধমান") == "vardhamAna"
+
+
+# ---------------------------------------------------------------- transliteration uses vowels too (real master)
+def test_indic_name_prefers_the_station_spelled_the_same_way():
+    from src.railway import StationMaster, StationMatcher
+    m = StationMatcher(StationMaster.load(prefer_database=False))
+    # consonants alone cannot tell RATNAGIRI from RATANGARH ("rtngr"); the full spelling can
+    for text in ("रत्नागिरी", "ರತ್ನಗಿರಿ"):
+        r = m.match(text)
+        assert r["status"] != "ambiguous"
+        assert (r.get("station_code") or r["candidates"][0]["station_code"]) == "RN"
+        assert (r.get("match_score") or r["candidates"][0]["match_score"]) <= 85     # never accepted automatically
+
+
+def test_bengali_text_reaches_the_transliteration_fallback():
+    from src.railway.station_matcher import StationMatcher
+    from src.railway import StationMaster
+    master = StationMaster.load(prefer_database=False)
+    master.aliases = []                                    # no Bengali alias to lean on
+    r = StationMatcher(master).match("আসানসোল")           # Asansol
+    assert (r.get("station_code") or r["candidates"][0]["station_code"]) == "ASN"
+
+
+def test_nukta_letters_transliterate_as_r():
+    from src.railway.text_normalizer import transliterate_to_latin
+    assert transliterate_to_latin("হাওড়া") == "hAorA"                 # no stray nukta dot
+    assert transliterate_to_latin("शिवड़ी") == transliterate_to_latin("शिवड़ी") == "zivarI"
+
+
+# ---------------------------------------------------------------- every reading counts (match_readings)
+@pytest.fixture(scope="module")
+def real_matcher():
+    from src.railway import StationMaster, StationMatcher
+    return StationMatcher(StationMaster.load(prefer_database=False))
+
+
+def test_station_only_in_another_reading_is_suggested_not_accepted(real_matcher):
+    watermark = {"status": "ok", "clean_text": "pe Stow Adobe St0v | Adobe | e Stock Adobe Stock"}
+    r = real_matcher.match_readings(watermark, ["रत्नागिरी"])
+    assert r["candidates"][0]["station_code"] == "RN"
+    assert not r["accepted"] and r["candidates"][0]["match_score"] <= 85
+    assert r["candidates"][0]["match_method"].endswith("other_reading")
+
+
+def test_clear_chosen_reading_keeps_its_decision(real_matcher):
+    chosen = {"status": "ok", "clean_text": "NEW DELHI"}
+    plain, merged = real_matcher.match(chosen), real_matcher.match_readings(chosen, ["HOWRAH"])
+    keys = ("status", "station_code", "match_score", "match_method", "accepted")
+    assert {k: merged[k] for k in keys} == {k: plain[k] for k in keys}
+    n = len(plain["candidates"])                      # own candidates first, other readings after
+    assert merged["candidates"][:n] == plain["candidates"]
+    assert all(c["match_method"].endswith("other_reading") for c in merged["candidates"][n:])
+
+
+def test_possible_match_is_not_overridden_by_other_readings(real_matcher):
+    chosen = {"status": "ok", "clean_text": "रत्नागिरी"}                 # "possible" Ratnagiri
+    merged = real_matcher.match_readings(chosen, ["LUCKNOW", "SEALDAH"])
+    assert merged["status"] == "possible" and merged["station_code"] == "RN"
+
+
+def test_failed_ocr_still_gets_suggestions_from_faint_readings(real_matcher):
+    failed = {"status": "OCR failed", "error": "no confident text"}
+    r = real_matcher.match_readings(failed, ["RATNAGIRI"])
+    assert r["candidates"][0]["station_code"] == "RN" and not r["accepted"]
+    assert real_matcher.match_readings(failed, [])["status"] == "ocr_failed"     # nothing seen at all
+
+
+def test_other_readings_collects_other_scripts_and_rejected_attempts():
+    from src.script_evidence import other_readings
+    res = {"ocr": {"clean_text": "Adobe Stock"},
+           "readings": {"Devanagari": {"clean_text": "रत्नागिरी", "attempts": [{"text": "रत्नागिरी"}]},
+                        "Kannada": {"clean_text": "", "attempts": [{"text": "RATNAGIR"}, {"text": ""}]},
+                        "Telugu": {"clean_text": "Adobe Stock", "attempts": []}}}
+    assert other_readings(res) == ["रत्नागिरी", "RATNAGIR"]
+
+
+# ---------------------------------------------------------------- watermarks (stock-photo previews)
+WATERMARKED = ("pe Stow Adobe St0v Adobe St0v St0v | Adobe | e Stock Adobe Stock ock Adobe Stock | e Stock Adok "
+               "रत्ना गिशी lobe Stock | e Stock Stock रत्नागिरी tock | e Stock Adol rdobe Stock | Stock Sto INAGIR Stock")
+
+
+def test_watermark_words_are_removed_and_station_names_kept():
+    from src.railway.station_matcher import strip_watermarks
+    cleaned = strip_watermarks(WATERMARKED)
+    assert "रत्नागिरी" in cleaned and "Stock" not in cleaned and "St0v" not in cleaned
+    for name in ("NEW DELHI", "RATNAGIRI", "HOWRAH JN", "STOCKPORT"):       # real names survive
+        assert strip_watermarks(name) == name
+
+
+def test_station_is_found_through_a_watermark(real_matcher):
+    r = real_matcher.match_readings({"status": "ok", "clean_text": WATERMARKED}, [])
+    assert r["candidates"][0]["station_code"] == "RN" and not r["accepted"]

@@ -64,6 +64,12 @@ def _load_model(model_path: str, labels_path: str) -> Tuple[object, List[str], i
     return model, list(labels["classes"]), int(labels.get("image_size", IMG_SIZE))
 
 
+def unload_model() -> None:
+    """Forget the loaded CNN; the next prediction loads it again."""
+    with _LOAD_LOCK:
+        _load_model.cache_clear()
+
+
 def predict_script(image: ImageSource, threshold: float = DEFAULT_THRESHOLD,
                    model_path: Optional[str] = None) -> Dict:
     """Classify the script of one image. Raises ``InvalidImageError`` / ``ModelNotAvailable``."""

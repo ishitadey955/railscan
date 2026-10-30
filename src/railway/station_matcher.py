@@ -14,7 +14,9 @@ matched exactly):
                           the station name, e.g. "DELHI" -> several
                           stations => ambiguous, "SHAHDARA" -> one => possible
     fuzzy / alias_fuzzy   RapidFuzz token-sort ratio               score = ratio
-    transliteration_fuzzy Indic text -> Latin consonant skeleton   score = ratio x 0.85 (never "high")
+    transliteration_fuzzy Indic text -> Latin: consonant skeleton  score = mean of skeleton and full
+                          and full spelling (vowels too) vs the   spelling ratios x 0.85 (never "high")
+                          English name, so RATNAGIRI beats RATANGARH
 
 Confidence tiers (configurable in :class:`MatchConfig`):
     score >= 90        high      -> accepted automatically
@@ -78,6 +80,57 @@ class _Cand:
     text: str = ""
 
 
+# Words of stock-photo watermarks ("Adobe Stock" tiled over a preview image). OCR misreads them
+# ("Stodk", "Moobe"), so they are compared fuzzily; see strip_watermarks().
+WATERMARK_WORDS = ("adobe", "stock", "shutterstock", "alamy", "dreamstime", "istock", "getty", "images",
+                   "depositphotos", "freepik", "vectorstock", "bigstock", "123rf", "preview", "watermark")
+
+
+def strip_watermarks(text: str, min_repeats: int = 3) -> str:
+    """Remove watermark words from OCR text before station matching.
+
+    Dropped: Latin words that look like a stock-photo watermark word (fuzzy, as OCR misreads them),
+    Latin words repeated ``min_repeats`` times or more (a tiled watermark repeats; a station name on
+    a board does not), and tokens with no letters at all (digit noise). Indic words are kept.
+    """
+    lines = [ln.split() for ln in re.split(r"[\r\n|]+", text or "")]
+    latin = [t.casefold() for ln in lines for t in ln if detect_script(t) == "latin"]
+    counts = {t: latin.count(t) for t in set(latin)}
+
+    def keep(tok: str) -> bool:
+        if not re.search(r"[^\W\d_]", tok):                          # no letters: digits, symbols
+            return False
+        if detect_script(tok) != "latin":
+            return True
+        low = tok.casefold()
+        if counts.get(low, 0) >= min_repeats:
+            return False
+        return len(low) < 3 or max(fuzz.ratio(low, w) for w in WATERMARK_WORDS) < 75
+
+    return "\n".join(" ".join(t for t in ln if keep(t)) for ln in lines if any(keep(t) for t in ln))
+
+
+def script_runs(text: str) -> List[str]:
+    """Each line split into runs of one script: 'Stock रत्नागिरी tock' -> ['Stock', 'रत्नागिरी', 'tock'].
+    Boards print each script on its own; noise of another script then cannot hide the name."""
+    runs: List[str] = []
+    for ln in re.split(r"[\r\n|]+", text or ""):
+        cur, cur_script = [], None
+        for tok in ln.split():
+            sc = detect_script(tok)
+            if cur and sc != cur_script:
+                runs.append(" ".join(cur)); cur = []
+            cur.append(tok); cur_script = sc
+        if cur:
+            runs.append(" ".join(cur))
+    return [r for r in runs if r.strip()]
+
+
+def _letters(text: Optional[str]) -> str:
+    """Lower-case Latin letters only: 'ratnAgirI' -> 'ratnagiri', 'RATNAGIRI JN' -> 'ratnagirijn'."""
+    return re.sub(r"[^a-z]", "", (text or "").lower())
+
+
 class StationMatcher:
     """Match free text (or an OCR result dict) to a station in a :class:`StationMaster`."""
 
@@ -96,7 +149,7 @@ class StationMatcher:
         self._compact: Dict[str, Set[str]] = defaultdict(set)     # compact_key(name)
         self._core: Dict[str, Set[str]] = defaultdict(set)        # core_key(name)
         corpora: Dict[str, Tuple[List[str], List[Tuple[str, str]]]] = {
-            s: ([], []) for s in ("latin", "devanagari", "kannada", "telugu")}
+            s: ([], []) for s in ("latin", "devanagari", "kannada", "telugu", "bengali")}
 
         def corpus_add(key: str, code: str, kind: str) -> None:
             script = detect_script(key)
@@ -138,13 +191,17 @@ class StationMatcher:
 
         # consonant skeletons of English names/aliases for the transliteration fallback
         sk: Dict[str, Set[str]] = defaultdict(set)
+        latin: Dict[str, Set[str]] = defaultdict(set)      # code -> full Latin spellings (no spaces)
         for key, codes in list(self._norm.items()) + list(self._alias.items()) + list(self._core.items()):
             if detect_script(key) == "latin":
                 s = phonetic_skeleton(key)
                 if len(s) >= self.cfg.min_skeleton_len:
                     sk[s].update(codes)
+                for code in codes:
+                    latin[code].add(_letters(key))
         self._skeletons = sk
         self._skeleton_keys = list(sk)
+        self._latin = latin
 
     # ------------------------------------------------------------------ segments
     @staticmethod
@@ -237,16 +294,21 @@ class StationMatcher:
         return [_Cand(c, self.cfg.partial_name_score, "partial_name", raw) for c in codes]
 
     def _transliteration_candidates(self, raw: str) -> List[_Cand]:
-        if detect_script(raw) not in ("devanagari", "kannada", "telugu"):
+        if detect_script(raw) not in ("devanagari", "kannada", "telugu", "bengali"):
             return []
-        sk = phonetic_skeleton(transliterate_to_latin(core_key(raw) or raw))
+        latin = transliterate_to_latin(core_key(raw) or raw)
+        sk = phonetic_skeleton(latin)
         if len(sk) < self.cfg.min_skeleton_len:
             return []
+        full = _letters(latin)
         out: List[_Cand] = []
         for choice, score, _ in process.extract(sk, self._skeleton_keys, scorer=fuzz.ratio, limit=10,
                                                 score_cutoff=self.cfg.min_candidate_score):
-            capped = round(float(score) * self.cfg.transliteration_cap / 100.0, 1)  # scaled: ranks stay distinct, max = cap
             for code in self._skeletons[choice]:
+                # the skeleton drops vowels (RATNAGIRI and RATANGARH are both "rtngr"); the full spelling
+                # tells them apart. Scaled so the maximum is the cap: never "high" on its own.
+                spelled = max((fuzz.ratio(full, k) for k in self._latin.get(code, ())), default=0.0)
+                capped = round((float(score) + spelled) / 2 * self.cfg.transliteration_cap / 100.0, 1)
                 out.append(_Cand(code, capped, "transliteration_fuzzy", raw))
         return out
 
@@ -285,10 +347,63 @@ class StationMatcher:
 
         # best candidate per station across all text segments
         best: Dict[str, _Cand] = {}
+        self._collect(text, best)
+        return self._decide(best, warnings, context_codes)
+
+    def match_readings(self, primary: Union[str, Dict[str, Any], None], others: Iterable[str],
+                       context_codes: Optional[Iterable[str]] = None) -> Dict[str, Any]:
+        """Like :meth:`match` on ``primary`` (the reading the app chose), but stations found only in
+        ``others`` (the sign read with the other scripts, or faint readings the OCR rejected as too
+        uncertain) are added as candidates. Their scores are scaled by transliteration_cap / 100 (0.85),
+        so they are suggested for the user to confirm, never accepted automatically.
+
+        A blurry or watermarked photo often has the station name in a reading other than the chosen
+        one (e.g. the chosen reading is mostly "Adobe Stock", the Devanagari one says रत्नागिरी).
+        """
+        result = self.match(primary, context_codes)
+        scale = self.cfg.transliteration_cap / 100.0        # other readings: score x 0.85, never "high"
+        extra: Dict[str, _Cand] = {}
+        for text in others:
+            if text and text.strip():
+                self._collect_cleaned(text, extra, scale=scale, tag="+other_reading")
+        if result.get("accepted") or result.get("status") == "possible":
+            # the chosen reading already names a station: keep that decision exactly, and only list
+            # stations from the other readings as further suggestions after its own candidates
+            have = {c["station_code"] for c in result.get("candidates") or []}
+            more = sorted((c for c in extra.values() if c.code not in have), key=lambda c: (-c.score, c.code))
+            room = max(self.cfg.max_candidates - len(have), 0)
+            result["candidates"] = list(result.get("candidates") or []) + [self._cand_dict(c) for c in more[:room]]
+            return result
+        # the chosen reading found nothing usable: decide on all readings together. (Tried: a bonus
+        # for stations several readings agree on. It made results worse: a tiled watermark repeats
+        # the same junk in every reading, so the junk "agreed" too.)
+        best: Dict[str, _Cand] = dict(extra)
+        if isinstance(primary, dict) and primary.get("status") == "ok":
+            self._collect_cleaned(primary.get("station_text") or primary.get("clean_text") or "", best)
+        elif isinstance(primary, str):
+            self._collect_cleaned(primary, best)
+        if not best:                    # nothing anywhere: keep the original verdict (e.g. ocr_failed)
+            return result
+        return self._decide(best, list(result.get("warnings") or []), context_codes)
+
+    def _collect_cleaned(self, text: str, best: Dict[str, _Cand], scale: float = 1.0, tag: str = "") -> None:
+        """_collect on the text without watermark words, line by line and script run by script run."""
+        cleaned = strip_watermarks(text)
+        self._collect(cleaned, best, scale=scale, tag=tag)
+        for run in script_runs(cleaned):
+            self._collect(run, best, scale=scale, tag=tag)
+
+    def _collect(self, text: str, best: Dict[str, _Cand], scale: float = 1.0, tag: str = "") -> None:
+        """Add the best candidate per station found in ``text`` to ``best`` (scores times ``scale``)."""
         for seg in self._segments(text):
             for c in self._segment_candidates(seg):
+                if scale != 1.0 or tag:
+                    c = _Cand(c.code, round(c.score * scale, 1), c.method + tag, c.text)
                 if c.code not in best or c.score > best[c.code].score:
                     best[c.code] = c
+
+    def _decide(self, best: Dict[str, "_Cand"], warnings: List[str],
+                context_codes: Optional[Iterable[str]] = None) -> Dict[str, Any]:
         ranked = sorted(best.values(), key=lambda c: (-c.score, c.code))
         cand_list = [self._cand_dict(c) for c in ranked[: self.cfg.max_candidates]]
         if not ranked or ranked[0].score < self.cfg.possible_threshold:

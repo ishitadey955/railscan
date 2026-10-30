@@ -146,9 +146,16 @@ def transliterate_to_latin(text: str) -> Optional[str]:
     src = {"devanagari": sc.DEVANAGARI, "kannada": sc.KANNADA, "telugu": sc.TELUGU,
            "bengali": sc.BENGALI}[script]
     try:
-        return sc.transliterate(normalize_text(text), src, sc.HK)
+        return sc.transliterate(_NUKTA_R.sub(lambda m: _NUKTA_R_TO[m.group(0)[0]], normalize_text(text)), src, sc.HK)
     except Exception:
         return None
+
+
+# ड़ ढ़ / ড় ঢ় (with a nukta dot, or as one precomposed letter) are flapped "r" sounds; the
+# transliteration library leaves the dot behind ("hAoDa়A" for হাওড়া), so map them to र / র first
+_NUKTA_R = re.compile("[डढ]़|[ड़ढ़]|[ডঢ]়|[ড়ঢ়]")
+_NUKTA_R_TO = {"ड": "र", "ढ": "र", "ड़": "र", "ढ़": "र",
+               "ড": "র", "ঢ": "র", "ড়": "র", "ঢ়": "র"}
 
 
 _VOWELS = set("aeiou")
